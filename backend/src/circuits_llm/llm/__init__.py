@@ -1,0 +1,65 @@
+"""LLM layer: providers, prompts, lenient output parsing and the design/repair loop."""
+
+from .contracts import (
+    DEFAULT_BASE_URLS,
+    MAX_HISTORY_TURNS,
+    AttemptStarted,
+    ChatTurn,
+    DesignCompleted,
+    DesignEvent,
+    DesignFailed,
+    DesignRequest,
+    EndpointFailed,
+    EndpointTestResult,
+    ModelEndpoint,
+    OutputMode,
+    ProviderKind,
+    ValidationFailed,
+)
+from .design import MAX_ATTEMPTS_PER_ENDPOINT, ExtraCheck, run_design
+from .parsing import ParseResult, parse_model_output
+from .prompts import build_messages, build_repair_messages, response_schema, system_prompt
+from .providers import (
+    Completion,
+    ErrorKind,
+    Message,
+    Provider,
+    ProviderError,
+    ProviderFactory,
+    create_provider,
+    test_endpoint,
+)
+
+__all__ = [
+    "DEFAULT_BASE_URLS",
+    "MAX_ATTEMPTS_PER_ENDPOINT",
+    "MAX_HISTORY_TURNS",
+    "AttemptStarted",
+    "ChatTurn",
+    "Completion",
+    "DesignCompleted",
+    "DesignEvent",
+    "DesignFailed",
+    "DesignRequest",
+    "EndpointFailed",
+    "EndpointTestResult",
+    "ErrorKind",
+    "ExtraCheck",
+    "Message",
+    "ModelEndpoint",
+    "OutputMode",
+    "ParseResult",
+    "Provider",
+    "ProviderError",
+    "ProviderFactory",
+    "ProviderKind",
+    "ValidationFailed",
+    "build_messages",
+    "build_repair_messages",
+    "create_provider",
+    "parse_model_output",
+    "response_schema",
+    "run_design",
+    "system_prompt",
+    "test_endpoint",
+]

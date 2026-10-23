@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Built frontend copied into the Python package
+backend/src/circuits_llm/web/static/
+
+# Local tooling / binaries
+vendor/
+*.db
+*.sqlite3
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+.claude/

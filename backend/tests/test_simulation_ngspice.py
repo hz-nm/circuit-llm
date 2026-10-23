@@ -1,0 +1,199 @@
+"""Integration tests that run the real ngspice binary (skipped when it is not installed)."""
+
+from __future__ import annotations
+
+import asyncio
+import math
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from circuits_llm.domain import Circuit
+from circuits_llm.simulation import (
+    NgspiceSimulator,
+    OperatingPointResult,
+    SimulationResult,
+    SweepResult,
+    locate_ngspice,
+    simulation_issues,
+)
+
+NGSPICE = locate_ngspice()
+requires_ngspice = pytest.mark.skipif(NGSPICE is None, reason="ngspice not found")
+
+
+def _vsrc(id_: str, pos: str, neg: str, **extra: Any) -> dict[str, Any]:
+    return {"id": id_, "kind": "voltage_source", "pins": {"+": pos, "-": neg}, **extra}
+
+
+def _two_pin(kind: str, id_: str, a: str, b: str, value: float) -> dict[str, Any]:
+    return {"id": id_, "kind": kind, "value": value, "pins": {"1": a, "2": b}}
+
+
+def _simulate(data: dict[str, Any], timeout_s: float = 30) -> SimulationResult:
+    assert NGSPICE is not None
+    simulator = NgspiceSimulator(NGSPICE, timeout_s=timeout_s)
+    return asyncio.run(simulator.simulate(Circuit.model_validate(data)))
+
+
+def _op(result: SimulationResult) -> OperatingPointResult:
+    assert result.ok, result.error
+    op = result.analyses[0]
+    assert isinstance(op, OperatingPointResult)
+    return op
+
+
+def _sweep(result: SimulationResult, index: int) -> SweepResult:
+    sweep = result.analyses[index]
+    assert isinstance(sweep, SweepResult)
+    return sweep
+
+
+@requires_ngspice
+def test_led_current(led_circuit: Circuit) -> None:
+    op = _op(_simulate(led_circuit.model_dump()))
+    assert op.branch_currents["R1"] == pytest.approx(0.0213, rel=0.03)
+    assert 1.8 < op.node_voltages["N1"] < 2.1
+    assert "GND" not in op.node_voltages
+
+
+@requires_ngspice
+def test_rc_lowpass_corner() -> None:
+    result = _simulate(
+        {
+            "title": "RC low-pass",
+            "components": [
+                _vsrc("V1", "IN", "GND", value=0, ac_magnitude=1),
+                _two_pin("resistor", "R1", "IN", "OUT", 1e3),
+                _two_pin("capacitor", "C1", "OUT", "GND", 100e-9),
+            ],
+            "analyses": [{"type": "ac", "start_frequency": 10, "stop_frequency": 1e6}],
+            "probes": [{"kind": "voltage", "target": "OUT"}],
+        }
+    )
+    assert result.ok, result.error
+    ac = _sweep(result, 1)
+    trace = ac.traces[0]
+    assert ac.x.log_scale and trace.phase_deg is not None
+    corner = min(range(len(trace.values)), key=lambda i: abs(trace.values[i] - math.sqrt(0.5)))
+    assert ac.x.values[corner] == pytest.approx(1591.5, rel=0.1)
+    assert trace.phase_deg[corner] == pytest.approx(-45, abs=4)
+
+
+@requires_ngspice
+def test_common_emitter_bias_is_active() -> None:
+    op = _op(
+        _simulate(
+            {
+                "title": "CE amplifier",
+                "components": [
+                    _vsrc("VCC", "VCC", "GND", value=12),
+                    _two_pin("resistor", "RB1", "VCC", "B", 47e3),
+                    _two_pin("resistor", "RB2", "B", "GND", 10e3),
+                    _two_pin("resistor", "RC", "VCC", "C", 4.7e3),
+                    _two_pin("resistor", "RE", "E", "GND", 1e3),
+                    {
+                        "id": "Q1",
+                        "kind": "npn",
+                        "model": "2N3904",
+                        "pins": {"collector": "C", "base": "B", "emitter": "E"},
+                    },
+                ],
+            }
+        )
+    )
+    v = op.node_voltages
+    assert 0.6 < v["B"] - v["E"] < 0.75
+    assert v["C"] - v["E"] > 1.0  # not saturated
+
+
+@requires_ngspice
+def test_inverting_opamp_gain_and_clipping() -> None:
+    result = _simulate(
+        {
+            "title": "Inverting amplifier",
+            "components": [
+                _vsrc(
+                    "VIN",
+                    "IN",
+                    "GND",
+                    value=0.1,
+                    waveform={"shape": "sine", "amplitude": 2, "frequency": 1e3},
+                ),
+                _vsrc("VP1", "VP", "GND", value=12),
+                _vsrc("VN1", "GND", "VN", value=12),
+                _two_pin("resistor", "R1", "IN", "INV", 10e3),
+                _two_pin("resistor", "R2", "INV", "OUT", 100e3),
+                {
+                    "id": "U1",
+                    "kind": "opamp",
+                    "model": "TL072",
+                    "pins": {"in+": "GND", "in-": "INV", "out": "OUT", "v+": "VP", "v-": "VN"},
+                },
+            ],
+            "analyses": [{"type": "tran", "stop_time": 2e-3, "step_time": 2e-6}],
+            "probes": [{"kind": "voltage", "target": "OUT"}],
+        }
+    )
+    assert _op(result).node_voltages["OUT"] == pytest.approx(-1.0, rel=0.01)  # gain -10
+    out = _sweep(result, 1).traces[0].values
+    assert 9.5 < max(out) < 12 and -12 < min(out) < -9.5  # clipped near the rails
+
+
+@requires_ngspice
+def test_rc_charging_transient() -> None:
+    result = _simulate(
+        {
+            "title": "RC charging",
+            "components": [
+                _vsrc(
+                    "V1",
+                    "IN",
+                    "GND",
+                    waveform={
+                        "shape": "pulse",
+                        "initial": 0,
+                        "pulsed": 5,
+                        "width": 5e-3,
+                        "period": 10e-3,
+                    },
+                ),
+                _two_pin("resistor", "R1", "IN", "OUT", 1e3),
+                _two_pin("capacitor", "C1", "OUT", "GND", 1e-6),
+            ],
+            "analyses": [{"type": "tran", "stop_time": 3e-3, "step_time": 1e-6}],
+            "probes": [{"kind": "voltage", "target": "OUT"}],
+        }
+    )
+    assert result.ok, result.error
+    tran = _sweep(result, 1)
+    at_tau = min(range(len(tran.x.values)), key=lambda i: abs(tran.x.values[i] - 1e-3))
+    assert tran.traces[0].values[at_tau] == pytest.approx(5 * (1 - math.exp(-1)), rel=0.02)
+
+
+@requires_ngspice
+def test_timeout_becomes_issue() -> None:
+    assert NGSPICE is not None
+    circuit = Circuit.model_validate(
+        {
+            "title": "Too long",
+            "components": [
+                _vsrc(
+                    "V1", "IN", "GND", waveform={"shape": "sine", "amplitude": 1, "frequency": 1e6}
+                ),
+                _two_pin("resistor", "R1", "IN", "GND", 1e3),
+            ],
+            "analyses": [{"type": "tran", "stop_time": 10, "step_time": 1e-9}],
+        }
+    )
+    issues = asyncio.run(simulation_issues(NgspiceSimulator(NGSPICE, timeout_s=1), circuit))
+    assert [i.code for i in issues] == ["simulation_failed"]
+    assert "timed out" in issues[0].message
+
+
+def test_missing_binary_does_not_raise(led_circuit: Circuit, tmp_path: Path) -> None:
+    simulator = NgspiceSimulator(tmp_path / "no-such-ngspice.exe")
+    result = asyncio.run(simulator.simulate(led_circuit))
+    assert not result.ok
+    assert result.error is not None and "Could not start ngspice" in result.error
