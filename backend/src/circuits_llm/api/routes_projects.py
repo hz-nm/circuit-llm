@@ -42,6 +42,7 @@ ServicesDep = Annotated[Services, Depends(get_services)]
 
 DEFAULT_TITLE: Final = ProjectCreate.model_fields["title"].default
 _SSE_HEADERS: Final = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+INTERRUPTED_REPLY: Final = "Stopped before an answer was ready."
 
 
 def version_out(record: VersionRecord) -> VersionOut:
@@ -250,6 +251,13 @@ async def _design_turn(
             if isinstance(event, DesignCompleted | DesignFailed):
                 outcome = event
             yield _sse(event)
+    except (asyncio.CancelledError, GeneratorExit):
+        # The client went away mid-turn. Record that so history stays consistent; this is a
+        # quick local write, done synchronously because we may not await while cancelling.
+        services.store.add_message(
+            project.id, "assistant", INTERRUPTED_REPLY, meta=MessageMeta(error=True)
+        )
+        raise
     except Exception:
         logger.exception("design turn failed for project %s", project.id)
         outcome = DesignFailed(error="internal error while designing; see the server log")

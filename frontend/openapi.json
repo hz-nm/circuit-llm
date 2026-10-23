@@ -1,0 +1,2522 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "circuits-llm",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Health",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalog": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Catalog",
+        "operationId": "catalog_api_catalog_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ComponentSpecOut"
+                  },
+                  "type": "array",
+                  "title": "Response Catalog Api Catalog Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List Models",
+        "operationId": "list_models_api_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EndpointOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Models Api Models Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Create Model",
+        "operationId": "create_model_api_models_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndpointIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/order": {
+      "put": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Reorder Models",
+        "operationId": "reorder_models_api_models_order_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndpointOrder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EndpointOut"
+                  },
+                  "type": "array",
+                  "title": "Response Reorder Models Api Models Order Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{endpoint_id}": {
+      "put": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Update Model",
+        "operationId": "update_model_api_models__endpoint_id__put",
+        "parameters": [
+          {
+            "name": "endpoint_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Endpoint Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndpointIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Delete Model",
+        "operationId": "delete_model_api_models__endpoint_id__delete",
+        "parameters": [
+          {
+            "name": "endpoint_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Endpoint Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{endpoint_id}/test": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Test Model",
+        "operationId": "test_model_api_models__endpoint_id__test_post",
+        "parameters": [
+          {
+            "name": "endpoint_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Endpoint Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointTestResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Projects",
+        "operationId": "list_projects_api_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectRecord"
+                  },
+                  "type": "array",
+                  "title": "Response List Projects Api Projects Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "operationId": "create_project_api_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project",
+        "operationId": "get_project_api_projects__project_id__get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Rename Project",
+        "operationId": "rename_project_api_projects__project_id__patch",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRename"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Delete Project",
+        "operationId": "delete_project_api_projects__project_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/versions/{number}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Version",
+        "operationId": "get_version_api_projects__project_id__versions__number__get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/circuit": {
+      "put": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Save Manual Edit",
+        "description": "Store a hand-edited circuit as a new version (saved even if it has ERC errors).",
+        "operationId": "save_manual_edit_api_projects__project_id__circuit_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CircuitIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/versions/{number}/restore": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Restore Version",
+        "operationId": "restore_version_api_projects__project_id__versions__number__restore_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/versions/{number}/simulation": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Simulation",
+        "operationId": "get_simulation_api_projects__project_id__versions__number__simulation_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/versions/{number}/simulate": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Simulate Version",
+        "operationId": "simulate_version_api_projects__project_id__versions__number__simulate_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/versions/{number}/spice": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Export Spice",
+        "description": "The ngspice deck for a version, for use in other simulators or for debugging.",
+        "operationId": "export_spice_api_projects__project_id__versions__number__spice_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/messages": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Send Message",
+        "operationId": "send_message_api_projects__project_id__messages_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events; each `data:` line is a StreamEvent.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamEvent"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AcSweep": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "ac",
+            "title": "Type",
+            "default": "ac"
+          },
+          "start_frequency": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Start Frequency"
+          },
+          "stop_frequency": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Stop Frequency"
+          },
+          "points_per_decade": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Points Per Decade",
+            "default": 20
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start_frequency",
+          "stop_frequency"
+        ],
+        "title": "AcSweep"
+      },
+      "Axis": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Values"
+          },
+          "log_scale": {
+            "type": "boolean",
+            "title": "Log Scale",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "unit",
+          "values"
+        ],
+        "title": "Axis"
+      },
+      "Category": {
+        "type": "string",
+        "enum": [
+          "passive",
+          "source",
+          "semiconductor",
+          "integrated"
+        ],
+        "title": "Category"
+      },
+      "Circuit": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/Component"
+            },
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 1,
+            "title": "Components"
+          },
+          "analyses": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/OperatingPoint"
+                },
+                {
+                  "$ref": "#/components/schemas/DcSweep"
+                },
+                {
+                  "$ref": "#/components/schemas/AcSweep"
+                },
+                {
+                  "$ref": "#/components/schemas/Transient"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "ac": "#/components/schemas/AcSweep",
+                  "dc": "#/components/schemas/DcSweep",
+                  "op": "#/components/schemas/OperatingPoint",
+                  "tran": "#/components/schemas/Transient"
+                }
+              }
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Analyses"
+          },
+          "probes": {
+            "items": {
+              "$ref": "#/components/schemas/Probe"
+            },
+            "type": "array",
+            "maxItems": 24,
+            "title": "Probes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "components"
+        ],
+        "title": "Circuit"
+      },
+      "CircuitIn": {
+        "properties": {
+          "circuit": {
+            "$ref": "#/components/schemas/Circuit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "circuit"
+        ],
+        "title": "CircuitIn"
+      },
+      "Component": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ComponentKind"
+          },
+          "pins": {
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 48,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_]+$"
+            },
+            "type": "object",
+            "maxProperties": 8,
+            "minProperties": 1,
+            "title": "Pins"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SineWave"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PulseWave"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "shape",
+                  "mapping": {
+                    "pulse": "#/components/schemas/PulseWave",
+                    "sine": "#/components/schemas/SineWave"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waveform"
+          },
+          "ac_magnitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ac Magnitude"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "pins"
+        ],
+        "title": "Component"
+      },
+      "ComponentKind": {
+        "type": "string",
+        "enum": [
+          "resistor",
+          "capacitor",
+          "inductor",
+          "voltage_source",
+          "current_source",
+          "diode",
+          "led",
+          "zener",
+          "npn",
+          "pnp",
+          "nmos",
+          "pmos",
+          "opamp"
+        ],
+        "title": "ComponentKind"
+      },
+      "ComponentSpecOut": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ComponentKind"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "designator_prefix": {
+            "type": "string",
+            "title": "Designator Prefix"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "pins": {
+            "items": {
+              "$ref": "#/components/schemas/PinOut"
+            },
+            "type": "array",
+            "title": "Pins"
+          },
+          "value_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Unit"
+          },
+          "value_required": {
+            "type": "boolean",
+            "title": "Value Required"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "display_name",
+          "category",
+          "designator_prefix",
+          "description",
+          "pins",
+          "value_unit",
+          "value_required",
+          "models",
+          "default_model"
+        ],
+        "title": "ComponentSpecOut"
+      },
+      "DcSweep": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "dc",
+            "title": "Type",
+            "default": "dc"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+            "title": "Source"
+          },
+          "start": {
+            "type": "number",
+            "title": "Start"
+          },
+          "stop": {
+            "type": "number",
+            "title": "Stop"
+          },
+          "step": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Step"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "start",
+          "stop",
+          "step"
+        ],
+        "title": "DcSweep"
+      },
+      "EndpointIn": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderKind"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "output_mode": {
+            "$ref": "#/components/schemas/OutputMode",
+            "default": "auto"
+          },
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "default": 0.2
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "minimum": 256.0,
+            "title": "Max Output Tokens",
+            "default": 16384
+          },
+          "timeout_s": {
+            "type": "number",
+            "maximum": 600.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Timeout S",
+            "default": 180.0
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "provider",
+          "model"
+        ],
+        "title": "EndpointIn",
+        "description": "Create or update a model endpoint.\n\nOn update, ``api_key`` of ``None`` keeps the stored key and ``\"\"`` clears it."
+      },
+      "EndpointOrder": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "EndpointOrder"
+      },
+      "EndpointOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderKind"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "effective_base_url": {
+            "type": "string",
+            "title": "Effective Base Url"
+          },
+          "output_mode": {
+            "$ref": "#/components/schemas/OutputMode"
+          },
+          "temperature": {
+            "type": "number",
+            "title": "Temperature"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "title": "Max Output Tokens"
+          },
+          "timeout_s": {
+            "type": "number",
+            "title": "Timeout S"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "has_api_key": {
+            "type": "boolean",
+            "title": "Has Api Key"
+          },
+          "api_key_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key Hint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "provider",
+          "model",
+          "base_url",
+          "effective_base_url",
+          "output_mode",
+          "temperature",
+          "max_output_tokens",
+          "timeout_s",
+          "enabled",
+          "has_api_key",
+          "api_key_hint"
+        ],
+        "title": "EndpointOut"
+      },
+      "EndpointTestResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "latency_ms",
+          "message"
+        ],
+        "title": "EndpointTestResult"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthOut": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "ngspice": {
+            "$ref": "#/components/schemas/NgspiceStatus"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "ngspice"
+        ],
+        "title": "HealthOut"
+      },
+      "Issue": {
+        "properties": {
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "component_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Id"
+          },
+          "net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "title": "Issue"
+      },
+      "MessageIn": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "MessageIn"
+      },
+      "MessageMeta": {
+        "properties": {
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Id"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "error": {
+            "type": "boolean",
+            "title": "Error",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MessageMeta"
+      },
+      "MessageRecord": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "version_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Number"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MessageMeta",
+            "default": {
+              "error": false,
+              "warnings": []
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "content",
+          "created_at"
+        ],
+        "title": "MessageRecord"
+      },
+      "NgspiceStatus": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "available",
+          "path"
+        ],
+        "title": "NgspiceStatus"
+      },
+      "OperatingPoint": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "op",
+            "title": "Type",
+            "default": "op"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "OperatingPoint"
+      },
+      "OperatingPointResult": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "op",
+            "title": "Type",
+            "default": "op"
+          },
+          "node_voltages": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Node Voltages"
+          },
+          "branch_currents": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Branch Currents"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "node_voltages",
+          "branch_currents"
+        ],
+        "title": "OperatingPointResult"
+      },
+      "OutputMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "json_schema",
+          "json_object",
+          "text"
+        ],
+        "title": "OutputMode",
+        "description": "How strictly the provider is asked to emit JSON.\n\n``auto`` picks the strongest mode the provider is known to support and\ndegrades gracefully (schema -> JSON mode -> plain text) when it is rejected."
+      },
+      "PinOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "optional": {
+            "type": "boolean",
+            "title": "Optional"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "optional"
+        ],
+        "title": "PinOut"
+      },
+      "Probe": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "voltage",
+              "current"
+            ],
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 48,
+            "minLength": 1,
+            "title": "Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "target"
+        ],
+        "title": "Probe",
+        "description": "A signal to plot: a net voltage (relative to GND) or the current through a component."
+      },
+      "ProjectCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "default": "Untitled circuit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ProjectCreate"
+      },
+      "ProjectDetail": {
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/ProjectRecord"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageRecord"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/VersionSummary"
+            },
+            "type": "array",
+            "title": "Versions"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project",
+          "messages",
+          "versions",
+          "latest"
+        ],
+        "title": "ProjectDetail"
+      },
+      "ProjectRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "latest_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProjectRecord"
+      },
+      "ProjectRename": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "ProjectRename"
+      },
+      "ProviderKind": {
+        "type": "string",
+        "enum": [
+          "anthropic",
+          "openai_compatible",
+          "openrouter",
+          "gemini"
+        ],
+        "title": "ProviderKind"
+      },
+      "PulseWave": {
+        "properties": {
+          "shape": {
+            "type": "string",
+            "const": "pulse",
+            "title": "Shape",
+            "default": "pulse"
+          },
+          "initial": {
+            "type": "number",
+            "title": "Initial"
+          },
+          "pulsed": {
+            "type": "number",
+            "title": "Pulsed"
+          },
+          "delay": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Delay",
+            "default": 0.0
+          },
+          "rise": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Rise",
+            "default": 1e-09
+          },
+          "fall": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Fall",
+            "default": 1e-09
+          },
+          "width": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Width"
+          },
+          "period": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Period"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "initial",
+          "pulsed",
+          "width",
+          "period"
+        ],
+        "title": "PulseWave"
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "error",
+          "warning"
+        ],
+        "title": "Severity"
+      },
+      "SimulationResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "analyses": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/OperatingPointResult"
+                },
+                {
+                  "$ref": "#/components/schemas/SweepResult"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "ac": "#/components/schemas/SweepResult",
+                  "dc": "#/components/schemas/SweepResult",
+                  "op": "#/components/schemas/OperatingPointResult",
+                  "tran": "#/components/schemas/SweepResult"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Analyses"
+          },
+          "netlist": {
+            "type": "string",
+            "title": "Netlist"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "log": {
+            "type": "string",
+            "title": "Log",
+            "default": ""
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "netlist"
+        ],
+        "title": "SimulationResult"
+      },
+      "SineWave": {
+        "properties": {
+          "shape": {
+            "type": "string",
+            "const": "sine",
+            "title": "Shape",
+            "default": "sine"
+          },
+          "offset": {
+            "type": "number",
+            "title": "Offset",
+            "default": 0.0
+          },
+          "amplitude": {
+            "type": "number",
+            "title": "Amplitude"
+          },
+          "frequency": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Frequency"
+          },
+          "delay": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Delay",
+            "default": 0.0
+          },
+          "phase_deg": {
+            "type": "number",
+            "title": "Phase Deg",
+            "default": 0.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "amplitude",
+          "frequency"
+        ],
+        "title": "SineWave"
+      },
+      "SweepResult": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "dc",
+              "ac",
+              "tran"
+            ],
+            "title": "Type"
+          },
+          "x": {
+            "$ref": "#/components/schemas/Axis"
+          },
+          "traces": {
+            "items": {
+              "$ref": "#/components/schemas/Trace"
+            },
+            "type": "array",
+            "title": "Traces"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "x",
+          "traces"
+        ],
+        "title": "SweepResult"
+      },
+      "Trace": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Values"
+          },
+          "phase_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase Deg"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "unit",
+          "values"
+        ],
+        "title": "Trace"
+      },
+      "Transient": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "tran",
+            "title": "Type",
+            "default": "tran"
+          },
+          "stop_time": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Stop Time"
+          },
+          "step_time": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Time"
+          },
+          "start_time": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Start Time",
+            "default": 0.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stop_time"
+        ],
+        "title": "Transient"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VersionOut": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "circuit": {
+            "$ref": "#/components/schemas/Circuit"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "mermaid": {
+            "type": "string",
+            "title": "Mermaid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "number",
+          "source",
+          "created_at",
+          "circuit",
+          "issues",
+          "mermaid"
+        ],
+        "title": "VersionOut"
+      },
+      "VersionSummary": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "manual",
+              "restore"
+            ],
+            "title": "Source"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "number",
+          "source",
+          "title",
+          "created_at"
+        ],
+        "title": "VersionSummary"
+      },
+      "AttemptStarted": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "attempt_started",
+            "default": "attempt_started",
+            "title": "Type",
+            "type": "string"
+          },
+          "endpoint_id": {
+            "title": "Endpoint Id",
+            "type": "string"
+          },
+          "endpoint_label": {
+            "title": "Endpoint Label",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "endpoint_id",
+          "endpoint_label",
+          "model",
+          "attempt",
+          "max_attempts"
+        ],
+        "title": "AttemptStarted",
+        "type": "object"
+      },
+      "DesignCompleted": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "completed",
+            "default": "completed",
+            "title": "Type",
+            "type": "string"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "circuit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Circuit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "endpoint_id": {
+            "title": "Endpoint Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reply",
+          "circuit",
+          "endpoint_id",
+          "model"
+        ],
+        "title": "DesignCompleted",
+        "type": "object"
+      },
+      "DesignFailed": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Type",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "DesignFailed",
+        "type": "object"
+      },
+      "EndpointFailed": {
+        "additionalProperties": false,
+        "description": "The endpoint errored or exhausted its attempts; the next endpoint is tried.",
+        "properties": {
+          "type": {
+            "const": "endpoint_failed",
+            "default": "endpoint_failed",
+            "title": "Type",
+            "type": "string"
+          },
+          "endpoint_id": {
+            "title": "Endpoint Id",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint_id",
+          "error"
+        ],
+        "title": "EndpointFailed",
+        "type": "object"
+      },
+      "TurnSaved": {
+        "additionalProperties": false,
+        "description": "Final stream event: what was persisted for this turn.",
+        "properties": {
+          "type": {
+            "const": "saved",
+            "default": "saved",
+            "title": "Type",
+            "type": "string"
+          },
+          "user_message": {
+            "$ref": "#/components/schemas/MessageRecord"
+          },
+          "assistant_message": {
+            "$ref": "#/components/schemas/MessageRecord"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "user_message",
+          "assistant_message",
+          "version"
+        ],
+        "title": "TurnSaved",
+        "type": "object"
+      },
+      "ValidationFailed": {
+        "additionalProperties": false,
+        "description": "The model answered but its circuit failed parsing or ERC; a repair turn follows.",
+        "properties": {
+          "type": {
+            "const": "validation_failed",
+            "default": "validation_failed",
+            "title": "Type",
+            "type": "string"
+          },
+          "endpoint_id": {
+            "title": "Endpoint Id",
+            "type": "string"
+          },
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Problems",
+            "type": "array"
+          }
+        },
+        "required": [
+          "endpoint_id",
+          "attempt",
+          "problems"
+        ],
+        "title": "ValidationFailed",
+        "type": "object"
+      },
+      "StreamEvent": {
+        "discriminator": {
+          "mapping": {
+            "attempt_started": "#/components/schemas/AttemptStarted",
+            "completed": "#/components/schemas/DesignCompleted",
+            "endpoint_failed": "#/components/schemas/EndpointFailed",
+            "failed": "#/components/schemas/DesignFailed",
+            "saved": "#/components/schemas/TurnSaved",
+            "validation_failed": "#/components/schemas/ValidationFailed"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AttemptStarted"
+          },
+          {
+            "$ref": "#/components/schemas/ValidationFailed"
+          },
+          {
+            "$ref": "#/components/schemas/EndpointFailed"
+          },
+          {
+            "$ref": "#/components/schemas/DesignCompleted"
+          },
+          {
+            "$ref": "#/components/schemas/DesignFailed"
+          },
+          {
+            "$ref": "#/components/schemas/TurnSaved"
+          }
+        ]
+      }
+    }
+  }
+}

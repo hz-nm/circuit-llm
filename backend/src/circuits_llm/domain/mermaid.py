@@ -40,6 +40,11 @@ def _escape(text: str) -> str:
     return text.replace('"', "#quot;")
 
 
+def _escape_pin(pin: str) -> str:
+    # Mermaid 11 parses edge labels as markdown, so "+" / "-" would become list items.
+    return _escape(pin).replace("+", "#43;").replace("-", "#45;")
+
+
 def component_summary(component: Component) -> str:
     """Short human-readable value text such as ``10 kΩ`` or ``2N3904``."""
     spec = CATALOG[component.kind]
@@ -86,7 +91,7 @@ def to_mermaid(circuit: Circuit) -> str:
     for component in circuit.components:
         for pin, net in component.pins.items():
             lines.append(
-                f'    {_node_id("C", component.id)} ---|"{_escape(pin)}"| {_node_id("N", net)}'
+                f'    {_node_id("C", component.id)} ---|"{_escape_pin(pin)}"| {_node_id("N", net)}'
             )
 
     lines.extend(f"    {definition}" for definition in _CLASS_DEFS)
