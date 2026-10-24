@@ -8,6 +8,7 @@ reports every problem at once so it can be fed back to an LLM in a single repair
 from __future__ import annotations
 
 from collections import defaultdict
+from itertools import pairwise
 from typing import Annotated, Final, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -21,6 +22,7 @@ MAX_COMPONENTS: Final = 300
 MAX_PINS_PER_COMPONENT: Final = 8
 MAX_ANALYSES: Final = 6
 MAX_PROBES: Final = 24
+MAX_PWL_POINTS: Final = 200
 
 
 def normalize_net(name: str) -> str:
@@ -72,7 +74,28 @@ class PulseWave(StrictModel):
         return self
 
 
-Waveform = Annotated[SineWave | PulseWave, Field(discriminator="shape")]
+class PwlWave(StrictModel):
+    """Piecewise-linear waveform: straight lines through ``(time, value)`` points.
+
+    Holds the last value after the final point. Good for ramps and slow profiles such
+    as a solar panel going from day to night.
+    """
+
+    shape: Literal["pwl"] = "pwl"
+    points: Annotated[
+        list[tuple[Annotated[float, Field(ge=0, allow_inf_nan=False)], FiniteFloat]],
+        Field(min_length=2, max_length=MAX_PWL_POINTS),
+    ]
+
+    @model_validator(mode="after")
+    def _increasing_times(self) -> PwlWave:
+        times = [t for t, _ in self.points]
+        if any(b <= a for a, b in pairwise(times)):
+            raise ValueError("point times must be strictly increasing")
+        return self
+
+
+Waveform = Annotated[SineWave | PulseWave | PwlWave, Field(discriminator="shape")]
 
 
 # --------------------------------------------------------------------------- components

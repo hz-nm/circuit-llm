@@ -5,7 +5,12 @@ import pytest
 from circuits_llm.domain import CATALOG, Circuit, ComponentKind
 from circuits_llm.simulation import DISCRETE_MODELS, OPAMP_MODELS, parse_raw, to_spice
 from circuits_llm.simulation.downsample import decimation_indices
-from circuits_llm.simulation.library import opamp_subckt
+from circuits_llm.simulation.library import (
+    LOGIC_FAMILIES,
+    LOGIC_KINDS,
+    logic_subckt,
+    opamp_subckt,
+)
 
 
 def test_every_catalog_model_has_a_library_entry() -> None:
@@ -15,6 +20,11 @@ def test_every_catalog_model_has_a_library_entry() -> None:
                 assert model in OPAMP_MODELS
                 assert opamp_subckt(model, with_supplies=False).startswith(".subckt")
                 assert opamp_subckt(model, with_supplies=True).startswith(".subckt")
+            elif kind in LOGIC_KINDS:
+                assert model in LOGIC_FAMILIES
+                assert logic_subckt(kind, model, with_supplies=True).startswith(".subckt")
+            elif kind is ComponentKind.LAMP:
+                assert float(model.removesuffix("V")) > 0, model  # rated voltage
             else:
                 assert model in DISCRETE_MODELS.get(kind, {}), f"{kind}: {model}"
 
@@ -28,13 +38,16 @@ def test_led_circuit_deck(led_circuit: Circuit) -> None:
     assert "V1 VCC 0 DC 9" in lines
     assert "R1 R1_sense N1 330" in lines  # probed pin 1 goes through the sense source
     assert "VSENSE_R1 VCC R1_sense DC 0" in lines
-    assert "D1 N1 0 D_LED_RED" in lines  # GND -> 0
+    assert "D1 D1_sense 0 D_LED_RED" in lines  # GND -> 0; every two-pin part is metered
+    assert "VSENSE_D1 N1 D1_sense DC 0" in lines
     assert sum(line.startswith(".model") for line in lines) == 1  # only models in use
     assert "D_1N4148" not in deck.text
     assert [p.command for p in deck.analyses] == ["op"]
-    assert deck.branch_currents == {"i(v1)": "V1", "i(vsense_r1)": "R1"}
+    assert deck.branch_currents == {"i(v1)": "V1", "i(vsense_r1)": "R1", "i(vsense_d1)": "D1"}
     assert [t.name for t in deck.traces if t.probed] == ["V(N1)", "I(R1)"]
-    assert [t.net for t in deck.traces if not t.probed] == ["VCC"]  # recorded for animation
+    unprobed = [t for t in deck.traces if not t.probed]  # recorded for the live schematic
+    assert [t.net for t in unprobed if t.net] == ["VCC"]
+    assert [t.component for t in unprobed if t.component] == ["V1", "D1"]
 
 
 def test_opamp_variant_follows_supply_pins() -> None:

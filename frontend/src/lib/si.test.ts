@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatEng, formatSI, parseEng } from "./si";
+import { formatEng, formatReadout, formatSI, parseEng } from "./si";
 
 describe("formatSI", () => {
   it("uses SI prefixes like the backend", () => {
@@ -23,5 +23,16 @@ describe("parseEng", () => {
     expect(parseEng("")).toBeNull();
     expect(formatEng(0.003)).toBe("3m");
     expect(formatEng(1e-5)).toBe("10u");
+  });
+});
+
+describe("formatReadout", () => {
+  it("renders every value of a unit at the same length", () => {
+    const samples = [0, 1e-3, -0.0123, 16.34, 999.96, 1.6e-9, 230, -12, 0.99996];
+    const lengths = new Set(samples.map((v) => formatReadout(v, "V").length));
+    expect(lengths.size).toBe(1);
+    expect(formatReadout(16.34, "V").replace(/\u2007/g, " ")).toBe(" 16.3  V");
+    expect(formatReadout(-0.0123, "A").replace(/\u2007/g, " ")).toBe("−12.3 mA");
+    expect(formatReadout(0.99996, "V").replace(/\u2007/g, " ")).toBe(" 1.00  V");
   });
 });

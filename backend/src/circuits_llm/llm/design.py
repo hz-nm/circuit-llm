@@ -12,7 +12,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import aclosing
-from typing import Final
+from typing import Any, Final
 
 import httpx
 
@@ -26,9 +26,18 @@ from .contracts import (
     DesignRequest,
     EndpointFailed,
     ModelEndpoint,
+    Planned,
     ValidationFailed,
 )
 from .parsing import parse_model_output
+from .planner import (
+    Plan,
+    build_planner_messages,
+    fallback_plan,
+    ordered,
+    parse_plan,
+    planner_response_schema,
+)
 from .prompts import build_messages, build_repair_messages, response_schema
 from .providers.base import Completion, Message, Provider, ProviderError
 from .providers.factory import ProviderFactory, create_provider
@@ -52,8 +61,14 @@ async def run_design(
     client: httpx.AsyncClient,
     extra_checks: Sequence[ExtraCheck] = (),
     provider_factory: ProviderFactory = create_provider,
+    plan_first: bool = True,
 ) -> AsyncIterator[DesignEvent]:
-    """Design (or answer about) a circuit, trying each enabled endpoint in order."""
+    """Design (or answer about) a circuit, trying each enabled endpoint in order.
+
+    With ``plan_first`` the first endpoint that answers also plans the design: it picks
+    the component families (so the designer prompt only describes those) and sketches
+    the circuit. Without it, or when the plan is unusable, every family is described.
+    """
     enabled = [e for e in endpoints if e.enabled][:MAX_ENDPOINTS]
     if not enabled:
         yield DesignFailed(
@@ -61,10 +76,25 @@ async def run_design(
         )
         return
 
-    base = build_messages(request)
+    plan: Plan | None = None if plan_first else fallback_plan()
     failures: list[str] = []
     for endpoint in enabled:
         provider = provider_factory(endpoint, client)
+        if plan is None:
+            try:
+                plan = await _make_plan(provider, request, endpoint.id)
+            except ProviderError as exc:
+                logger.info("endpoint %s failed while planning: %s", endpoint.id, exc.kind.value)
+                yield EndpointFailed(endpoint_id=endpoint.id, error=exc.message)
+                failures.append(f"{endpoint.label} ({endpoint.model}): {exc.message}")
+                continue
+            yield Planned(
+                endpoint_id=endpoint.id,
+                families=ordered(plan.families),
+                plan=plan.text,
+                fallback=plan.fallback,
+            )
+        base = build_messages(request, plan.families, plan.text)
         attempts = _run_endpoint(endpoint, provider, base, extra_checks)
         async with aclosing(attempts) as events:
             async for event in events:
@@ -137,12 +167,17 @@ async def _run_endpoint(
 
 
 async def _complete_with_retry(
-    provider: Provider, messages: Sequence[Message], endpoint_id: str
+    provider: Provider,
+    messages: Sequence[Message],
+    endpoint_id: str,
+    schema: dict[str, Any] | None = None,
 ) -> Completion:
     """Call the provider, retrying a retryable error once after a short backoff."""
     for attempt in range(1, MAX_PROVIDER_TRIES + 1):
         try:
-            return await provider.complete(messages, response_schema=response_schema())
+            return await provider.complete(
+                messages, response_schema=schema if schema is not None else response_schema()
+            )
         except ProviderError as exc:
             if not exc.retryable or attempt == MAX_PROVIDER_TRIES:
                 raise
@@ -154,6 +189,16 @@ async def _complete_with_retry(
             )
             await asyncio.sleep(RETRY_BACKOFF_S)
     raise AssertionError("unreachable: the retry loop always returns or raises")
+
+
+async def _make_plan(provider: Provider, request: DesignRequest, endpoint_id: str) -> Plan:
+    completion = await _complete_with_retry(
+        provider, build_planner_messages(request), endpoint_id, planner_response_schema()
+    )
+    plan = parse_plan(completion.text, request.current_circuit)
+    if plan.fallback:
+        logger.info("endpoint %s: unusable plan, describing every family", endpoint_id)
+    return plan
 
 
 async def _run_extra_checks(circuit: Circuit, checks: Sequence[ExtraCheck]) -> list[Issue]:

@@ -101,6 +101,16 @@ class AttemptStarted(_Event):
     max_attempts: int
 
 
+class Planned(_Event):
+    """The design was planned: the component families to use and a short sketch."""
+
+    type: Literal["planned"] = "planned"
+    endpoint_id: str
+    families: list[str]
+    plan: str
+    fallback: bool  # the plan was unusable, so every family is described
+
+
 class ValidationFailed(_Event):
     """The model answered but its circuit failed parsing or ERC; a repair turn follows."""
 
@@ -133,7 +143,7 @@ class DesignFailed(_Event):
 
 
 DesignEvent = Annotated[
-    AttemptStarted | ValidationFailed | EndpointFailed | DesignCompleted | DesignFailed,
+    Planned | AttemptStarted | ValidationFailed | EndpointFailed | DesignCompleted | DesignFailed,
     Field(discriminator="type"),
 ]
 

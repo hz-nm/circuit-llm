@@ -18,7 +18,8 @@ function ComponentGlyph({ item, highlighted }: { item: LaidOutComponent; highlig
       className={highlighted ? "sch-component sch-highlight" : "sch-component"}
       data-component={component.id}
     >
-      <title>{`${component.id} (${component.kind})`}</title>
+      {/* Transparent box so the whole part (not just its strokes) can be hovered and clicked. */}
+      <rect width={placed.width} height={placed.height} className="sch-hitbox" />
       <g transform={`translate(${offset.x} ${offset.y}) ${rotationTransform(symbol.width, symbol.height, rotation)}`}>
         {symbol.draw(component, placed.connected)}
       </g>
@@ -69,7 +70,7 @@ const StaticLayer = memo(function StaticLayer({ schematic, highlight }: { schema
 export interface LiveOverlay {
   /** Node voltages keyed by upper-cased net name; null when there is no result. */
   voltages: ReadonlyMap<string, number> | null;
-  colorOf: (volts: number) => string;
+  /** Fixed-width formatter, so labels keep their size while animating. */
   formatVoltage: (volts: number) => string;
   probed: ReadonlySet<string>;
   /** Badge colour for a probed net (matches its plot trace when there is one). */
@@ -145,10 +146,6 @@ export interface SchematicSvgProps {
 /** SVG content of a laid-out schematic (testable with renderToStaticMarkup). */
 export function SchematicContent({ schematic, highlight, live = null, probe = null }: SchematicSvgProps) {
   const voltageOf = (net: string) => live?.voltages?.get(key(net));
-  const wireStyle = (net: string) => {
-    const v = voltageOf(net);
-    return v !== undefined && live ? { stroke: live.colorOf(v) } : undefined;
-  };
   const labelText = (net: string, name: string | null) => {
     const v = voltageOf(net);
     return composeNetLabel(name, v !== undefined && live ? live.formatVoltage(v) : null);
@@ -157,7 +154,7 @@ export function SchematicContent({ schematic, highlight, live = null, probe = nu
   const probedNets = live ? [...new Set(schematic.wires.map((w) => w.net).concat(flags.map((f) => f.net)))].filter((n) => live.probed.has(key(n))) : [];
 
   return (
-    <g className={live?.voltages ? "sch sch-live" : "sch"}>
+    <g className="sch">
       {/* Probe highlight under the wires: neutral, so it never reads as a voltage colour. */}
       {probedNets.map((net) =>
         schematic.wires
@@ -166,16 +163,16 @@ export function SchematicContent({ schematic, highlight, live = null, probe = nu
       )}
       <g className="sch-wires">
         {schematic.wires.map((wire) => (
-          <path key={wire.id} d={toPath(wire.points)} className="sch-wire" data-net={wire.net} style={wireStyle(wire.net)} />
+          <path key={wire.id} d={toPath(wire.points)} className="sch-wire" data-net={wire.net} />
         ))}
       </g>
       {schematic.junctions.map((j) => (
-        <circle key={`${j.x},${j.y}`} cx={round(j.x)} cy={round(j.y)} r={3} className="sch-junction" style={wireStyle(j.net) && { fill: wireStyle(j.net)!.stroke }} />
+        <circle key={`${j.x},${j.y}`} cx={round(j.x)} cy={round(j.y)} r={3} className="sch-junction" />
       ))}
       <StaticLayer schematic={schematic} highlight={highlight} />
       {flags.map((f) => (
         <g key={`flag:${f.net}:${f.anchor.x}:${f.anchor.y}`}>
-          <path d={toPath(f.wire)} className="sch-wire" style={wireStyle(f.net)} />
+          <path d={toPath(f.wire)} className="sch-wire" />
           <text x={round(f.anchor.x)} y={round(f.anchor.y)} textAnchor={f.align} dominantBaseline="central" className="sch-net-label">
             {labelText(f.net, f.name)}
           </text>
@@ -228,15 +225,15 @@ export const SCHEMATIC_CSS = `
 .sch-component .sym-body { fill: var(--sch-body, transparent); }
 .sch-highlight { color: var(--sch-highlight, #dc2626); }
 .sch-wire { stroke: var(--sch-wire, #2563eb); stroke-width: 1.75; fill: none; stroke-linejoin: round; stroke-linecap: round; }
-.sch-live .sch-wires .sch-wire { stroke-width: 2.5; }
 .sch-ground { stroke: currentColor; }
 .sch-junction { fill: var(--sch-wire, #2563eb); }
-.sch-live .sch-junction { r: 3.5; }
 .sch-label { font: 11px ui-sans-serif, system-ui, sans-serif; fill: var(--sch-muted, #4b5563); stroke: none; }
 .sch-label-id { font-weight: 600; fill: var(--sch-ink, #1f2937); }
 .sch-net-label { font: 600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--sch-net, #0f766e); stroke: var(--sch-bg, #ffffff); stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; font-variant-numeric: tabular-nums; }
 .sch-probe-glow { fill: none; stroke: var(--sch-ink, #1f2937); stroke-width: 9; stroke-opacity: 0.16; stroke-linecap: round; stroke-linejoin: round; }
 .sch-probe-badge circle { stroke: var(--sch-bg, #ffffff); stroke-width: 2; }
+.sch-hitbox { fill: transparent; stroke: none; pointer-events: all; cursor: pointer; }
+.sch-net-label { white-space: pre; }
 .sch-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; pointer-events: stroke; }
 .sch-hit:hover { stroke: var(--sch-wire, #2563eb); stroke-opacity: 0.15; }
 `;

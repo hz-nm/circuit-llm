@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from functools import cache
 from typing import Any, Final
 
-from circuits_llm.domain import CATALOG, GROUND_NET, Circuit, ComponentSpec
+from circuits_llm.domain import CATALOG, GROUND_NET, Circuit, ComponentSpec, Family
 
 from .contracts import ChatTurn, DesignRequest
 from .providers.base import Message
@@ -45,7 +45,10 @@ _FORMAT: Final = """\
    "probes": [{"kind": "voltage", "target": "OUT"}, {"kind": "current", "target": "R1"}]
  }}
 A pulse waveform is {"shape": "pulse", "initial": 0, "pulsed": 5, "width": "0.5m", "period": "1m"}
-(optional "delay", "rise", "fall").
+(optional "delay", "rise", "fall"). Use it for clocks and square waves.
+A piecewise-linear waveform is {"shape": "pwl", "points": [[0, 18], [0.4, 0], [1, 18]]}: \
+[time, value] pairs with increasing times. Use it for ramps and slow changes such as day to \
+night.
 A current probe target is a two-pin component id; a voltage probe target is a net name."""
 
 _RULES: Final = f"""\
@@ -129,9 +132,74 @@ _EXAMPLE_RC: Final[dict[str, Any]] = {
     },
 }
 
-FEW_SHOT_EXAMPLES: Final[tuple[tuple[str, dict[str, Any]], ...]] = (
-    (_EXAMPLE_LED_REQUEST, _EXAMPLE_LED),
-    (_EXAMPLE_RC_REQUEST, _EXAMPLE_RC),
+_EXAMPLE_LAMP_REQUEST: Final = (
+    "Turn a 12 V, 50 W street lamp on at night, using the solar panel voltage as the sensor."
+)
+_EXAMPLE_LAMP: Final[dict[str, Any]] = {
+    "reply": (
+        "A 10k/22k divider scales the panel voltage into a 74HC Schmitt-trigger inverter "
+        "powered from the 12 V battery. In daylight its input is high, so its output is low "
+        "and the IRFZ44N MOSFET is off. At dusk the input falls below about 40% of 12 V, the "
+        "output goes high and the MOSFET switches the 50 W lamp on. The hysteresis (about "
+        "4.6 V to 7 V at the input) stops flicker while the light level hovers. The transient "
+        "run sweeps the panel from day to night and back."
+    ),
+    "circuit": {
+        "title": "Solar street lamp with Schmitt trigger",
+        "description": "Panel-voltage dusk sensor, Schmitt inverter, MOSFET lamp switch.",
+        "components": [
+            {
+                "id": "VBAT",
+                "kind": "voltage_source",
+                "value": 12,
+                "pins": {"+": "VBAT", "-": "GND"},
+            },
+            {
+                "id": "VSOLAR",
+                "kind": "voltage_source",
+                "waveform": {"shape": "pwl", "points": [[0, 18], [0.4, 0], [0.6, 0], [1, 18]]},
+                "pins": {"+": "SOLAR", "-": "GND"},
+            },
+            {"id": "R1", "kind": "resistor", "value": "10k", "pins": {"1": "SOLAR", "2": "SENSE"}},
+            {"id": "R2", "kind": "resistor", "value": "22k", "pins": {"1": "SENSE", "2": "GND"}},
+            {
+                "id": "U1",
+                "kind": "schmitt_inverter",
+                "pins": {"a": "SENSE", "y": "GATE", "vdd": "VBAT", "vss": "GND"},
+            },
+            {
+                "id": "M1",
+                "kind": "nmos",
+                "model": "IRFZ44N",
+                "pins": {"drain": "DRAIN", "gate": "GATE", "source": "GND"},
+            },
+            {
+                "id": "LA1",
+                "kind": "lamp",
+                "value": 50,
+                "model": "12V",
+                "pins": {"1": "VBAT", "2": "DRAIN"},
+            },
+        ],
+        "analyses": [{"type": "tran", "stop_time": 1, "step_time": "1m"}],
+        "probes": [
+            {"kind": "voltage", "target": "SOLAR"},
+            {"kind": "voltage", "target": "GATE"},
+            {"kind": "current", "target": "LA1"},
+        ],
+    },
+}
+
+# (request, answer, families the example needs). An example is shown only when every
+# family it uses is described in the prompt.
+FEW_SHOT_EXAMPLES: Final[tuple[tuple[str, dict[str, Any], frozenset[Family]], ...]] = (
+    (_EXAMPLE_LED_REQUEST, _EXAMPLE_LED, frozenset({Family.CORE})),
+    (_EXAMPLE_RC_REQUEST, _EXAMPLE_RC, frozenset({Family.CORE})),
+    (
+        _EXAMPLE_LAMP_REQUEST,
+        _EXAMPLE_LAMP,
+        frozenset({Family.CORE, Family.LOGIC, Family.TRANSISTORS}),
+    ),
 )
 
 
@@ -153,12 +221,20 @@ def _compact(data: object) -> str:
     return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
+def system_prompt(families: frozenset[Family] = frozenset(Family)) -> str:
+    """The system prompt describing only the components of ``families`` (core is implied)."""
+    return _system_prompt(frozenset({Family.CORE, *families}))
+
+
 @cache
-def system_prompt() -> str:
-    """The full system prompt (built once per process from the catalog)."""
-    components = "\n".join(_describe_component(spec) for spec in CATALOG.values())
+def _system_prompt(families: frozenset[Family]) -> str:
+    components = "\n".join(
+        _describe_component(spec) for spec in CATALOG.values() if spec.family in families
+    )
     examples = "\n\n".join(
-        f"User: {request}\nAnswer:\n{_compact(answer)}" for request, answer in FEW_SHOT_EXAMPLES
+        f"User: {request}\nAnswer:\n{_compact(answer)}"
+        for request, answer, needs in FEW_SHOT_EXAMPLES
+        if needs <= families
     )
     return (
         "You are an electronics engineer. You design circuits that are simulated with SPICE.\n\n"
@@ -287,19 +363,24 @@ def circuit_json(circuit: Circuit) -> str:
     return _compact(circuit.model_dump(mode="json", exclude_none=True))
 
 
-def build_messages(request: DesignRequest) -> list[Message]:
-    """System prompt, recent history (reply text only) and the current request."""
+def build_messages(
+    request: DesignRequest,
+    families: frozenset[Family] = frozenset(Family),
+    plan: str = "",
+) -> list[Message]:
+    """System prompt for ``families``, recent history (reply text only) and the request."""
+    plan_text = f"Design plan (follow it):\n{plan}\n\n" if plan else ""
     if request.current_circuit is not None:
         user = (
             f"Current circuit:\n{circuit_json(request.current_circuit)}\n\n"
-            f"Request: {request.user_message}\n\n"
+            f"Request: {request.user_message}\n\n{plan_text}"
             "If the request changes the circuit, return the COMPLETE updated circuit. "
             "Answer with the JSON object only."
         )
     else:
-        user = f"Request: {request.user_message}\n\nAnswer with the JSON object only."
+        user = f"Request: {request.user_message}\n\n{plan_text}Answer with the JSON object only."
     return [
-        Message("system", system_prompt()),
+        Message("system", system_prompt(families)),
         *_history_messages(request.history),
         Message("user", user),
     ]

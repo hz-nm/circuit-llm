@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     ngspice_path: Path | None = None
     simulation_timeout_s: Annotated[float, Field(gt=0, le=300)] = 30.0
     simulate_during_design: bool = True
+    # Plan each design first: pick component families and sketch the circuit (one extra
+    # short LLM call; keeps the design prompt focused for weaker models).
+    plan_before_design: bool = True
     open_browser: bool = True
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 

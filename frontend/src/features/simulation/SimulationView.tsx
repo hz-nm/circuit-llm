@@ -7,8 +7,16 @@ export function SimulationView() {
   const { result, version, running, probes, cursor, driver } = useSimulationSession();
   const analyses = version.circuit.analyses ?? [];
   const links = useMemo<PlotLinks>(
-    () => ({ showsTrace: probes.showsTrace, toggleNet: probes.toggle, cursor, driver }),
-    [probes, cursor, driver],
+    () => ({
+      showsTrace: probes.showsTrace,
+      toggleNet: probes.toggle,
+      cursor,
+      driver,
+      components: probes.components,
+      togglePlot: probes.togglePlot,
+      circuit: version.circuit,
+    }),
+    [probes, cursor, driver, version.circuit],
   );
 
   return (

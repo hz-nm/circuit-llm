@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import type { AnalysisResult, OperatingPointResult, SimulationResult, SweepResult, Trace } from "../../api/types";
+import type { AnalysisResult, Circuit, OperatingPointResult, SimulationResult, SweepResult, Trace } from "../../api/types";
+import { isTwoPin, twoPinNames } from "../multimeter/readings";
+import { netKey } from "./live";
 import { formatSI } from "../../lib/si";
 import type { CursorStore } from "./live";
 import { UPlotChart, type ChartSeries } from "./UPlotChart";
@@ -11,6 +13,32 @@ export interface PlotLinks {
   cursor: CursorStore;
   /** Index of the analysis the shared cursor belongs to. */
   driver: number | null;
+  /** Components added from the multimeter (upper-cased ids) and the circuit they belong to. */
+  components: ReadonlySet<string>;
+  togglePlot: (componentId: string) => void;
+  circuit: Circuit;
+}
+
+/**
+ * V-across traces for components plotted from the multimeter, computed from
+ * the two pin-net traces (GND = 0 V). Returns trace -> component id.
+ */
+function acrossTraces(result: SweepResult, links: PlotLinks | undefined): Map<Trace, string> {
+  const out = new Map<Trace, string>();
+  if (!links || result.type === "ac") return out;
+  const byNet = new Map(result.traces.filter((t) => t.net && t.unit === "V").map((t) => [netKey(t.net!), t.values]));
+  const zeros = result.x.values.map(() => 0);
+  const netValues = (net: string | undefined) => (net === undefined ? undefined : netKey(net) === "GND" ? zeros : byNet.get(netKey(net)));
+  for (const component of links.circuit.components) {
+    if (!links.components.has(netKey(component.id)) || !isTwoPin(component)) continue;
+    const [p1, p2] = twoPinNames(component);
+    const a = netValues(component.pins[p1]);
+    const b = netValues(component.pins[p2]);
+    if (!a || !b) continue;
+    const trace: Trace = { name: `V(${component.id})`, unit: "V", values: a.map((v, k) => v - (b[k] ?? 0)), probed: true, net: null };
+    out.set(trace, component.id);
+  }
+  return out;
 }
 
 const TITLES: Record<AnalysisResult["type"], string> = {
@@ -111,17 +139,32 @@ function SweepSection({ result, links, cursor }: { result: SweepResult; links: P
   const [syncKey] = useState(() => `sweep-${++syncCounter}`);
   const shows = links?.showsTrace ?? probedByDefault;
 
-  // Plotted: traces marked probed (by the backend or the user's probes), minus user un-probes.
-  const shown: Indexed[] = useMemo(
-    () => result.traces.map((trace, index) => ({ trace, index })).filter(({ trace }) => shows(trace)),
-    [result.traces, shows],
-  );
+  // Plotted: traces marked probed (by the backend or the user's probes), minus user un-probes,
+  // plus V-across traces of components plotted from the multimeter.
+  const synthetic = useMemo(() => acrossTraces(result, links), [result, links]);
+  const shown: Indexed[] = useMemo(() => {
+    const real = result.traces.map((trace, index) => ({ trace, index })).filter(({ trace }) => shows(trace));
+    // Synthetic traces take the first palette slot no shown trace uses (slots wrap at 8).
+    const used = new Set(real.map(({ index }) => index % 8));
+    const extra = [...synthetic.keys()].map((trace, k) => {
+      const slot = [0, 1, 2, 3, 4, 5, 6, 7].find((c) => !used.has(c));
+      if (slot !== undefined) used.add(slot);
+      return { trace, index: slot ?? result.traces.length + k };
+    });
+    return [...real, ...extra];
+  }, [result.traces, synthetic, shows]);
   const extraNets = result.traces.filter((t) => t.net && !shows(t)).length;
 
   // Unchecking a net trace un-probes it (also on the schematic); current traces are only hidden.
   const toggle = (trace: Trace) => {
     if (trace.net && links) {
       links.toggleNet(trace.net);
+      return;
+    }
+    // A component added from the multimeter is removed as a whole (V across and current).
+    const fromMeter = synthetic.get(trace) ?? (trace.component && links?.components.has(netKey(trace.component)) ? trace.component : null);
+    if (fromMeter && links) {
+      links.togglePlot(fromMeter);
       return;
     }
     setHidden((h) => {

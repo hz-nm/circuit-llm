@@ -8,6 +8,7 @@ import type { Issue, ProjectDetail, StreamEvent, TurnSaved } from "../../api/typ
 /** One line of live progress shown while a design turn runs. */
 export type TurnStep =
   | { kind: "attempt"; label: string; model: string; attempt: number; maxAttempts: number }
+  | { kind: "planned"; families: string[]; plan: string; fallback: boolean }
   | { kind: "validation"; attempt: number; problems: string[] }
   | { kind: "endpoint_failed"; label: string; error: string }
   | { kind: "completed"; model: string; warnings: Issue[] }
@@ -26,6 +27,8 @@ const IDLE: TurnState = { running: false, pendingContent: null, steps: [], error
 /** Fold a stream event into the progress list (pure, so it is easy to reason about). */
 export function applyEvent(steps: TurnStep[], event: StreamEvent, labels: Map<string, string>): TurnStep[] {
   switch (event.type) {
+    case "planned":
+      return [...steps, { kind: "planned", families: event.families, plan: event.plan, fallback: event.fallback }];
     case "attempt_started":
       labels.set(event.endpoint_id, event.endpoint_label);
       return [

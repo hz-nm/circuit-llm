@@ -26,6 +26,14 @@ class ComponentKind(StrEnum):
     NMOS = "nmos"
     PMOS = "pmos"
     OPAMP = "opamp"
+    LAMP = "lamp"
+    NOT_GATE = "not_gate"
+    AND_GATE = "and_gate"
+    OR_GATE = "or_gate"
+    NAND_GATE = "nand_gate"
+    NOR_GATE = "nor_gate"
+    XOR_GATE = "xor_gate"
+    SCHMITT_INVERTER = "schmitt_inverter"
 
 
 class Category(StrEnum):
@@ -33,6 +41,26 @@ class Category(StrEnum):
     SOURCE = "source"
     SEMICONDUCTOR = "semiconductor"
     INTEGRATED = "integrated"
+
+
+class Family(StrEnum):
+    """Groups of kinds the planner picks from, so prompts only describe what a design needs.
+
+    ``core`` is always included.
+    """
+
+    CORE = "core"
+    TRANSISTORS = "transistors"
+    AMPLIFIERS = "amplifiers"
+    LOGIC = "logic"
+
+
+FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
+    Family.CORE: "resistors, capacitors, inductors, sources, diodes, LEDs, zeners, lamps",
+    Family.TRANSISTORS: "BJTs and MOSFETs for switching loads or amplifying",
+    Family.AMPLIFIERS: "op-amps for amplifiers, filters, comparators and references",
+    Family.LOGIC: "logic gates (NOT/AND/OR/NAND/NOR/XOR) and Schmitt-trigger inverters",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +90,9 @@ class ComponentSpec:
     dc_paths: tuple[tuple[str, str], ...] = ()
     # Pins that the device actively drives relative to ground (e.g. an op-amp output).
     driven_pins: tuple[str, ...] = ()
+    family: Family = Family.CORE
+    # Optional (positive, negative) supply pins that must be connected together or not at all.
+    supply_pins: tuple[str, str] | None = None
 
     @property
     def default_model(self) -> str | None:
@@ -247,6 +278,7 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
     ),
     ComponentSpec(
         kind=ComponentKind.NPN,
+        family=Family.TRANSISTORS,
         display_name="NPN transistor",
         category=Category.SEMICONDUCTOR,
         designator_prefix="Q",
@@ -258,6 +290,7 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
     ),
     ComponentSpec(
         kind=ComponentKind.PNP,
+        family=Family.TRANSISTORS,
         display_name="PNP transistor",
         category=Category.SEMICONDUCTOR,
         designator_prefix="Q",
@@ -269,6 +302,7 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
     ),
     ComponentSpec(
         kind=ComponentKind.NMOS,
+        family=Family.TRANSISTORS,
         display_name="N-channel MOSFET",
         category=Category.SEMICONDUCTOR,
         designator_prefix="M",
@@ -280,6 +314,7 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
     ),
     ComponentSpec(
         kind=ComponentKind.PMOS,
+        family=Family.TRANSISTORS,
         display_name="P-channel MOSFET",
         category=Category.SEMICONDUCTOR,
         designator_prefix="M",
@@ -291,6 +326,8 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
     ),
     ComponentSpec(
         kind=ComponentKind.OPAMP,
+        family=Family.AMPLIFIERS,
+        supply_pins=("v+", "v-"),
         display_name="Op-amp",
         category=Category.INTEGRATED,
         designator_prefix="U",
@@ -336,12 +373,86 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
         kind_aliases=("op_amp", "operational_amplifier", "opa", "comparator_opamp", "amplifier"),
         driven_pins=("out",),
     ),
+    ComponentSpec(
+        kind=ComponentKind.LAMP,
+        display_name="Lamp",
+        category=Category.PASSIVE,
+        designator_prefix="LA",
+        description=(
+            "A load such as a light bulb, LED bulb/module or heater, rated for 'model' volts. "
+            "Simulated as a resistor drawing the rated power at the rated voltage. Use it for "
+            "anything drawing more than about 1 W; a plain 'led' is a small indicator LED."
+        ),
+        pins=_TWO_TERMINAL,
+        value_unit="W",
+        value_required=True,
+        value_description="rated power in watts, e.g. '50'",
+        models=("12V", "5V", "24V", "230V"),
+        kind_aliases=("bulb", "light_bulb", "led_bulb", "led_lamp", "led_module", "load", "heater"),
+        dc_paths=(("1", "2"),),
+    ),
 )
 
-CATALOG: Final[dict[ComponentKind, ComponentSpec]] = {spec.kind: spec for spec in _SPECS}
+_GATE_SUPPLIES = (
+    PinSpec("vdd", "positive supply", aliases=("vcc", "v+", "vs+", "supply+"), optional=True),
+    PinSpec("vss", "negative supply / ground", aliases=("vee", "v-", "supply-"), optional=True),
+)
+_GATE_IN_A = PinSpec("a", "input A", aliases=("in", "in1", "a1", "input", "i1"))
+_GATE_IN_B = PinSpec("b", "input B", aliases=("in2", "b1", "i2"))
+_GATE_OUT = PinSpec("y", "output", aliases=("out", "output", "q", "o", "z"))
+_LOGIC_MODELS = ("74HC", "CD4000")
+_LOGIC_NOTE = (
+    "Inputs draw no current, so every input must be driven (never left floating). If 'vdd' "
+    "and 'vss' are connected the output swings between them; otherwise it is a 5 V logic gate."
+)
+
+
+def _gate(kind: ComponentKind, name: str, function: str, aliases: tuple[str, ...]) -> ComponentSpec:
+    single_input = kind in (ComponentKind.NOT_GATE, ComponentKind.SCHMITT_INVERTER)
+    inputs = (_GATE_IN_A,) if single_input else (_GATE_IN_A, _GATE_IN_B)
+    return ComponentSpec(
+        kind=kind,
+        display_name=name,
+        category=Category.INTEGRATED,
+        family=Family.LOGIC,
+        designator_prefix="U",
+        description=f"{function} {_LOGIC_NOTE}",
+        pins=(*inputs, _GATE_OUT, *_GATE_SUPPLIES),
+        models=_LOGIC_MODELS,
+        kind_aliases=aliases,
+        driven_pins=("y",),
+        supply_pins=("vdd", "vss"),
+    )
+
+
+_LOGIC_SPECS: Final[tuple[ComponentSpec, ...]] = (
+    _gate(
+        ComponentKind.NOT_GATE,
+        "NOT gate",
+        "Inverter: y = NOT a.",
+        ("not", "inverter", "74hc04", "cd4069"),
+    ),
+    _gate(ComponentKind.AND_GATE, "AND gate", "y = a AND b.", ("and", "74hc08", "cd4081")),
+    _gate(ComponentKind.OR_GATE, "OR gate", "y = a OR b.", ("or", "74hc32", "cd4071")),
+    _gate(ComponentKind.NAND_GATE, "NAND gate", "y = NOT (a AND b).", ("nand", "74hc00", "cd4011")),
+    _gate(ComponentKind.NOR_GATE, "NOR gate", "y = NOT (a OR b).", ("nor", "74hc02", "cd4001")),
+    _gate(ComponentKind.XOR_GATE, "XOR gate", "y = a XOR b.", ("xor", "exclusive_or", "74hc86")),
+    _gate(
+        ComponentKind.SCHMITT_INVERTER,
+        "Schmitt-trigger inverter",
+        "Inverter with hysteresis: y goes low when a rises above about 60% of the supply and "
+        "high again only when a falls below about 40%. Use it to turn slow or noisy signals "
+        "(light sensors, RC delays, dusk detection) into clean switching without flicker.",
+        ("schmitt", "schmitt_trigger", "74hc14", "cd40106"),
+    ),
+)
+
+CATALOG: Final[dict[ComponentKind, ComponentSpec]] = {
+    spec.kind: spec for spec in (*_SPECS, *_LOGIC_SPECS)
+}
 
 _KIND_LOOKUP: Final[dict[str, ComponentKind]] = {
-    key: spec.kind for spec in _SPECS for key in (spec.kind.value, *spec.kind_aliases)
+    key: spec.kind for spec in CATALOG.values() for key in (spec.kind.value, *spec.kind_aliases)
 }
 
 

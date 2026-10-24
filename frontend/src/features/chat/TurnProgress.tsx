@@ -11,6 +11,23 @@ function Spinner() {
 
 function StepLine({ step, current }: { step: TurnStep; current: boolean }) {
   switch (step.kind) {
+    case "planned":
+      return (
+        <li>
+          <details className="group">
+            <summary className="cursor-pointer">
+              {step.fallback ? (
+                <span className="text-muted">Couldn't plan; using every component family</span>
+              ) : (
+                <>
+                  Planned with <strong>{step.families.join(", ")}</strong> parts
+                </>
+              )}
+            </summary>
+            {step.plan && <p className="mt-1 whitespace-pre-wrap pl-4 text-muted">{step.plan}</p>}
+          </details>
+        </li>
+      );
     case "attempt":
       return (
         <li className="flex items-center gap-2">

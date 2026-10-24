@@ -349,7 +349,7 @@ export interface components {
             /** Model */
             model?: string | null;
             /** Waveform */
-            waveform?: (components["schemas"]["SineWave"] | components["schemas"]["PulseWave"]) | null;
+            waveform?: (components["schemas"]["SineWave"] | components["schemas"]["PulseWave"] | components["schemas"]["PwlWave"]) | null;
             /** Ac Magnitude */
             ac_magnitude?: number | null;
             /** Label */
@@ -359,7 +359,7 @@ export interface components {
          * ComponentKind
          * @enum {string}
          */
-        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp";
+        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter";
         /** ComponentSpecOut */
         ComponentSpecOut: {
             kind: components["schemas"]["ComponentKind"];
@@ -683,6 +683,25 @@ export interface components {
             period: number;
         };
         /**
+         * PwlWave
+         * @description Piecewise-linear waveform: straight lines through ``(time, value)`` points.
+         *
+         *     Holds the last value after the final point. Good for ramps and slow profiles such
+         *     as a solar panel going from day to night.
+         */
+        PwlWave: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            shape: "pwl";
+            /** Points */
+            points: [
+                number,
+                number
+            ][];
+        };
+        /**
          * Severity
          * @enum {string}
          */
@@ -768,6 +787,8 @@ export interface components {
             phase_deg?: number[] | null;
             /** Net */
             net?: string | null;
+            /** Component */
+            component?: string | null;
             /**
              * Probed
              * @default true
@@ -896,6 +917,25 @@ export interface components {
             error: string;
         };
         /**
+         * Planned
+         * @description The design was planned: the component families to use and a short sketch.
+         */
+        Planned: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "planned";
+            /** Endpoint Id */
+            endpoint_id: string;
+            /** Families */
+            families: string[];
+            /** Plan */
+            plan: string;
+            /** Fallback */
+            fallback: boolean;
+        };
+        /**
          * TurnSaved
          * @description Final stream event: what was persisted for this turn.
          */
@@ -926,7 +966,7 @@ export interface components {
             /** Problems */
             problems: string[];
         };
-        StreamEvent: components["schemas"]["AttemptStarted"] | components["schemas"]["ValidationFailed"] | components["schemas"]["EndpointFailed"] | components["schemas"]["DesignCompleted"] | components["schemas"]["DesignFailed"] | components["schemas"]["TurnSaved"];
+        StreamEvent: components["schemas"]["Planned"] | components["schemas"]["AttemptStarted"] | components["schemas"]["ValidationFailed"] | components["schemas"]["EndpointFailed"] | components["schemas"]["DesignCompleted"] | components["schemas"]["DesignFailed"] | components["schemas"]["TurnSaved"];
     };
     responses: never;
     parameters: never;

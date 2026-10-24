@@ -56,8 +56,11 @@ def component_summary(component: Component) -> str:
         unit = spec.value_unit or ""
         if w.shape == "sine":
             parts.append(f"sine {format_si(w.amplitude, unit)} @ {format_si(w.frequency, 'Hz')}")
-        else:
+        elif w.shape == "pulse":
             parts.append(f"pulse {format_si(w.initial, unit)}→{format_si(w.pulsed, unit)}")
+        else:
+            values = " → ".join(format_si(v, unit) for _, v in w.points[:4])
+            parts.append(f"pwl {values}" + (" …" if len(w.points) > 4 else ""))
     if component.ac_magnitude:
         parts.append(f"AC {component.ac_magnitude:g}")
     model = component.model or spec.default_model

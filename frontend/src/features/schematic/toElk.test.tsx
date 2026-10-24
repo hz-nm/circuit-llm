@@ -8,7 +8,6 @@ import { findJunctions, layoutCircuit } from "./layout";
 import { SCHEMATIC_CSS, SchematicContent } from "./SchematicSvg";
 import { SYMBOLS } from "./symbols";
 import { circuitToElk } from "./toElk";
-import { voltageColor } from "../simulation/live";
 
 describe("circuitToElk", () => {
   it("makes one node per component with fixed-position ports for routed pins", () => {
@@ -122,7 +121,6 @@ describe("layoutCircuit", () => {
                 circuit === ledCircuit
                   ? {
                       voltages: new Map([["VCC", 9], ["LED_A", 1.83]]),
-                      colorOf: (v) => voltageColor(v, 9, false),
                       formatVoltage: (v) => `${v.toFixed(2)} V`,
                       probed: new Set(["LED_A"]),
                       probeColor: () => "#eb6834",

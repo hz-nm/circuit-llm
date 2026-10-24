@@ -8,7 +8,16 @@
  * adding one entry here; `Record<ComponentKind, ...>` makes the compiler insist.
  */
 import type { ReactNode } from "react";
+import { formatSI } from "../../lib/si";
 import type { Component, ComponentKind } from "../../api/types";
+
+/**
+ * Kinds the backend catalog is adding this round. Until the regenerated
+ * ComponentKind enum includes them, the registry is keyed by this superset so
+ * the symbols are ready; once it does, this union simply collapses into it.
+ */
+export type UpcomingKind = "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "lamp";
+export type SymbolKind = ComponentKind | UpcomingKind;
 
 export type Side = "NORTH" | "EAST" | "SOUTH" | "WEST";
 
@@ -41,6 +50,8 @@ export interface SymbolDef {
   valueUnit: string | null;
   defaultModel: string | null;
   draw: (component: Component, connected: ReadonlySet<string>) => ReactNode;
+  /** Custom value text for the label (default: value with unit, then model). */
+  summary?: (component: Component) => string | null;
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -127,7 +138,57 @@ function Minus({ x, y, s = 3.5 }: { x: number; y: number; s?: number }) {
 
 // ---------------------------------------------------------------------------- registry
 
-export const SYMBOLS: Record<ComponentKind, SymbolDef> = {
+// ---------------------------------------------------------------------------- logic gates
+
+type GateBody = "and" | "or" | "xor" | "not";
+
+/** Body outline of an IEEE distinctive-shape gate in a 90 x 60 box (body spans x 20..70). */
+const GATE_BODY: Record<GateBody, string> = {
+  and: "M20 8H45A22 22 0 0 1 45 52H20Z",
+  or: "M18 8Q44 8 68 30Q44 52 18 52Q29 30 18 8Z",
+  xor: "M22 8Q47 8 70 30Q47 52 22 52Q33 30 22 8ZM15 8Q26 30 15 52",
+  not: "M22 12L62 30L22 48Z",
+};
+
+/** Where an input lead meets the body (the OR/XOR back is curved). */
+const GATE_INPUT_END: Record<GateBody, number> = { and: 20, or: 25, xor: 18, not: 22 };
+/** Where the body (or its bubble) ends on the output side. */
+const GATE_OUTPUT_START: Record<GateBody, number> = { and: 67, or: 68, xor: 70, not: 62 };
+
+function gate(body: GateBody, options: { inverted?: boolean; schmitt?: boolean; inputs: 1 | 2 }): SymbolDef {
+  const inputY = options.inputs === 1 ? [30] : [15, 45];
+  const inputNames = options.inputs === 1 ? ["a"] : ["a", "b"];
+  const out = GATE_OUTPUT_START[body] + (options.inverted ? 8 : 0);
+  return {
+    width: 90,
+    height: 60,
+    pins: [
+      ...inputNames.map((name, i): PinDef => ({ name, x: 0, y: inputY[i]!, side: "WEST" })),
+      { name: "y", x: 90, y: 30, side: "EAST" },
+      { name: "vdd", x: 45, y: 0, side: "NORTH", optional: true },
+      { name: "vss", x: 45, y: 60, side: "SOUTH", optional: true },
+    ],
+    orientation: "fixed",
+    labelSide: "right-top",
+    valueUnit: null,
+    defaultModel: null,
+    summary: () => null,
+    draw: (_c, connected) => (
+      <>
+        <path d={inputY.map((y) => `M0 ${y}H${GATE_INPUT_END[body]}`).join("") + `M${out} 30H90`} />
+        {connected.has("vdd") && <path d={`M45 0V${body === "not" ? 21 : 9}`} />}
+        {connected.has("vss") && <path d={`M45 60V${body === "not" ? 39 : 51}`} />}
+        <path d={GATE_BODY[body]} strokeLinejoin="round" className="sym-body" />
+        {options.inverted && <circle cx={GATE_OUTPUT_START[body] + 4} cy={30} r={4} className="sym-body" />}
+        {options.schmitt && <path d="M28 34H38V26M34 34V26H44" strokeWidth={1.25} />}
+      </>
+    ),
+  };
+}
+
+// ---------------------------------------------------------------------------- registry
+
+export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
   resistor: {
     width: 60,
     height: 20,
@@ -192,6 +253,8 @@ export const SYMBOLS: Record<ComponentKind, SymbolDef> = {
           <path d="M12 30q4-9 8 0t8 0" />
         ) : c.waveform?.shape === "pulse" ? (
           <path d="M11 34H15V25H23V34H29" strokeLinejoin="round" />
+        ) : c.waveform?.shape === "pwl" ? (
+          <path d="M11 26L17 34H23L29 26" strokeLinejoin="round" />
         ) : null}
         <Plus x={20} y={c.waveform ? 20 : 23} s={3} />
         <Minus x={20} y={c.waveform ? 40 : 38} s={3} />
@@ -336,9 +399,35 @@ export const SYMBOLS: Record<ComponentKind, SymbolDef> = {
       </>
     ),
   },
+  not_gate: gate("not", { inputs: 1, inverted: true }),
+  schmitt_inverter: gate("not", { inputs: 1, inverted: true, schmitt: true }),
+  and_gate: gate("and", { inputs: 2 }),
+  nand_gate: gate("and", { inputs: 2, inverted: true }),
+  or_gate: gate("or", { inputs: 2 }),
+  nor_gate: gate("or", { inputs: 2, inverted: true }),
+  xor_gate: gate("xor", { inputs: 2 }),
+  lamp: {
+    width: 60,
+    height: 30,
+    pins: twoTerminalPins(["1", "2"], 60, 15),
+    orientation: "two-terminal",
+    labelSide: "top",
+    valueUnit: "W",
+    defaultModel: null,
+    // value = rated power, model = rated voltage: "50 W @ 12V".
+    summary: (c) =>
+      [c.value !== undefined && c.value !== null ? formatSI(c.value, "W") : null, c.model].filter(Boolean).join(" @ ") || null,
+    draw: () => (
+      <>
+        <Leads x1={19} x2={41} y={15} w={60} />
+        <circle cx={30} cy={15} r={11} className="sym-body" />
+        <path d="M22.2 7.2L37.8 22.8M37.8 7.2L22.2 22.8" />
+      </>
+    ),
+  },
 };
 
-export function symbolFor(kind: ComponentKind): SymbolDef {
+export function symbolFor(kind: SymbolKind): SymbolDef {
   return SYMBOLS[kind];
 }
 

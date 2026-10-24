@@ -6,6 +6,8 @@ import { netKey } from "./live";
 interface ProbeOverrides {
   added: string[];
   removed: string[];
+  /** Components whose V-across and current the user added to the plots (upper-cased ids). */
+  components: string[];
 }
 
 const storageKey = (projectId: string, version: number) => `circuits-llm:probes:${projectId}:${version}`;
@@ -15,15 +17,16 @@ function load(key: string): ProbeOverrides {
     const raw = localStorage.getItem(key);
     const value: unknown = raw ? JSON.parse(raw) : null;
     if (value && typeof value === "object" && "added" in value && "removed" in value) {
-      const v = value as { added: unknown; removed: unknown };
+      const v = value as { added: unknown; removed: unknown; components?: unknown };
+      const strings = (list: unknown) => (Array.isArray(list) ? list.filter((s): s is string => typeof s === "string") : []);
       if (Array.isArray(v.added) && Array.isArray(v.removed)) {
-        return { added: v.added.filter((s) => typeof s === "string"), removed: v.removed.filter((s) => typeof s === "string") };
+        return { added: strings(v.added), removed: strings(v.removed), components: strings(v.components) };
       }
     }
   } catch {
     /* storage unavailable or corrupt */
   }
-  return { added: [], removed: [] };
+  return { added: [], removed: [], components: [] };
 }
 
 /** Nets probed by default: traces the backend marked `probed`, plus the circuit's voltage probes. */
@@ -45,6 +48,9 @@ export interface Probes {
   toggle: (net: string) => void;
   /** Whether a trace should be plotted: probed by default or by the user, and not un-probed. */
   showsTrace: (trace: Trace) => boolean;
+  /** Components added to the plots from the multimeter ("Plot"). */
+  components: ReadonlySet<string>;
+  togglePlot: (componentId: string) => void;
 }
 
 export function useProbes(projectId: string, version: number, circuit: Circuit, result: SimulationResult | null | undefined): Probes {
@@ -61,6 +67,18 @@ export function useProbes(projectId: string, version: number, circuit: Circuit, 
     return set;
   }, [defaults, overrides]);
 
+  const save = useCallback(
+    (next: ProbeOverrides) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch {
+        /* storage unavailable */
+      }
+      setState({ key, overrides: next });
+    },
+    [key],
+  );
+
   const toggle = useCallback(
     (net: string) => {
       const k = netKey(net);
@@ -74,15 +92,21 @@ export function useProbes(projectId: string, version: number, circuit: Circuit, 
         removed.delete(k);
         if (!defaults.has(k)) added.add(k);
       }
-      const next = { added: [...added], removed: [...removed] };
-      try {
-        localStorage.setItem(key, JSON.stringify(next));
-      } catch {
-        /* storage unavailable */
-      }
-      setState({ key, overrides: next });
+      save({ ...overrides, added: [...added], removed: [...removed] });
     },
-    [key, nets, defaults, overrides],
+    [nets, defaults, overrides, save],
+  );
+
+  const components = useMemo(() => new Set(overrides.components), [overrides]);
+  const togglePlot = useCallback(
+    (componentId: string) => {
+      const k = netKey(componentId);
+      const next = new Set(components);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      save({ ...overrides, components: [...next] });
+    },
+    [components, overrides, save],
   );
 
   return useMemo(
@@ -90,8 +114,14 @@ export function useProbes(projectId: string, version: number, circuit: Circuit, 
       nets,
       isProbed: (net: string) => nets.has(netKey(net)),
       toggle,
-      showsTrace: (trace: Trace) => (trace.net ? nets.has(netKey(trace.net)) : trace.probed !== false),
+      showsTrace: (trace: Trace) => {
+        if (trace.net) return nets.has(netKey(trace.net));
+        if (trace.component && components.has(netKey(trace.component))) return true;
+        return trace.probed !== false;
+      },
+      components,
+      togglePlot,
     }),
-    [nets, toggle],
+    [nets, toggle, components, togglePlot],
   );
 }

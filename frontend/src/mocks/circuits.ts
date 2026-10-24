@@ -1,5 +1,9 @@
 /** Realistic mock circuits and simulation results, used by tests, the dev gallery and the mock API. */
-import type { Circuit, SimulationResult } from "../api/types";
+import type { Circuit, ComponentKind, SimulationResult } from "../api/types";
+import type { UpcomingKind } from "../features/schematic/symbols";
+
+/** Kinds the backend enum doesn't list yet (see UpcomingKind); typed as ComponentKind for the mocks. */
+const upcoming = (kind: UpcomingKind) => kind as unknown as ComponentKind;
 
 export const ledCircuit: Circuit = {
   title: "LED with current-limiting resistor",
@@ -81,7 +85,28 @@ export const symbolZoo: Circuit = {
   probes: [],
 };
 
-export const MOCK_CIRCUITS: readonly Circuit[] = [ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo];
+/** Logic gates (IEEE distinctive shapes) and a lamp. */
+export const logicZoo: Circuit = {
+  title: "Logic zoo",
+  description: "",
+  components: [
+    { id: "V1", kind: "voltage_source", pins: { "+": "VDD", "-": "GND" }, value: 5 },
+    { id: "VA", kind: "voltage_source", pins: { "+": "A", "-": "GND" }, value: 5 },
+    { id: "VB", kind: "voltage_source", pins: { "+": "B", "-": "GND" }, value: 0 },
+    { id: "U1", kind: upcoming("not_gate"), pins: { a: "A", y: "NA", vdd: "VDD", vss: "GND" } },
+    { id: "U2", kind: upcoming("and_gate"), pins: { a: "NA", b: "B", y: "AND1" } },
+    { id: "U3", kind: upcoming("or_gate"), pins: { a: "A", b: "B", y: "OR1" } },
+    { id: "U4", kind: upcoming("nand_gate"), pins: { a: "AND1", b: "OR1", y: "NAND1" } },
+    { id: "U5", kind: upcoming("nor_gate"), pins: { a: "A", b: "NAND1", y: "NOR1" } },
+    { id: "U6", kind: upcoming("xor_gate"), pins: { a: "NOR1", b: "B", y: "XOR1" } },
+    { id: "U7", kind: upcoming("schmitt_inverter"), pins: { a: "XOR1", y: "DRV" } },
+    { id: "X1", kind: upcoming("lamp"), pins: { "1": "DRV", "2": "GND" }, value: 50, model: "12V" },
+  ],
+  analyses: [{ type: "op" }],
+  probes: [],
+};
+
+export const MOCK_CIRCUITS: readonly Circuit[] = [ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo, logicZoo];
 
 // ---------------------------------------------------------------------------- simulation results
 
@@ -160,6 +185,7 @@ export const opampTranResult: SimulationResult = {
           phase_deg: null,
           net: null,
           probed: true,
+          component: "RL",
         },
         { name: "V(FB)", unit: "V", values: times.map((t) => 0.5 * Math.sin(2 * Math.PI * 1000 * t)), phase_deg: null, net: "FB", probed: false },
         { name: "V(VPOS)", unit: "V", values: times.map(() => 12), phase_deg: null, net: "VPOS", probed: false },

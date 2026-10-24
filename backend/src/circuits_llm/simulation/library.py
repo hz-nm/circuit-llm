@@ -254,8 +254,102 @@ def opamp_subckt(model: str, with_supplies: bool) -> str:
 # --------------------------------------------------------------------------- assembly
 
 
-def library_text(models: Iterable[DeviceModel], opamps: Iterable[tuple[str, bool]]) -> str:
-    """Deduplicated library section for the given models and (op-amp model, supplies) pairs."""
+# --------------------------------------------------------------------------- logic gates
+
+
+@dataclass(frozen=True, slots=True)
+class LogicFamilySpec:
+    """Behavioural CMOS logic parameters (thresholds are fractions of the supply)."""
+
+    output_ohms: float  # output resistance
+    delay_s: float  # propagation delay
+    threshold: float  # switching threshold of plain gates
+    schmitt_high: float  # Schmitt positive-going threshold VT+
+    schmitt_low: float  # Schmitt negative-going threshold VT-
+
+
+LOGIC_FAMILIES: Final[dict[str, LogicFamilySpec]] = {
+    "74HC": LogicFamilySpec(
+        output_ohms=50, delay_s=10e-9, threshold=0.5, schmitt_high=0.58, schmitt_low=0.38
+    ),
+    "CD4000": LogicFamilySpec(
+        output_ohms=400, delay_s=60e-9, threshold=0.5, schmitt_high=0.59, schmitt_low=0.39
+    ),
+}
+
+UNPOWERED_LOGIC_SUPPLY_V: Final = 5.0
+_LOGIC_DELAY_R: Final = 1e3
+_LOGIC_INPUT_R: Final = 1e12  # CMOS input leakage; keeps the matrix well-conditioned
+_LOGIC_SUPPLY: Final = "V(vdd,vss)"
+_LOGIC_WIDTH: Final = f"(0.02*{_LOGIC_SUPPLY}+1e-3)"  # tanh transition width: sharp yet smooth
+
+# Logic functions on soft inputs A, B in [0, 1].
+_LOGIC_FUNCTIONS: Final[dict[ComponentKind, str]] = {
+    ComponentKind.NOT_GATE: "(1-A)",
+    ComponentKind.AND_GATE: "(A*B)",
+    ComponentKind.OR_GATE: "(A+B-A*B)",
+    ComponentKind.NAND_GATE: "(1-A*B)",
+    ComponentKind.NOR_GATE: "(1-(A+B-A*B))",
+    ComponentKind.XOR_GATE: "(A+B-2*A*B)",
+}
+LOGIC_KINDS: Final = frozenset((*_LOGIC_FUNCTIONS, ComponentKind.SCHMITT_INVERTER))
+
+
+def _soft_high(node: str, threshold: str) -> str:
+    """0..1, switching smoothly as V(node) crosses ``threshold`` (both relative to vss)."""
+    return f"0.5*(1+tanh((V({node},vss)-{threshold})/{_LOGIC_WIDTH}))"
+
+
+def logic_subckt_name(kind: ComponentKind, model: str, with_supplies: bool) -> str:
+    suffix = "" if with_supplies else "_5V"
+    return f"CL_{kind.value.upper()}_{model.upper()}{suffix}"
+
+
+def logic_subckt(kind: ComponentKind, model: str, with_supplies: bool) -> str:
+    """Gate as: soft logic source -> RC propagation delay -> buffer -> output resistance."""
+    family = LOGIC_FAMILIES[model]
+    single_input = kind in (ComponentKind.NOT_GATE, ComponentKind.SCHMITT_INVERTER)
+    inputs = ["a"] if single_input else ["a", "b"]
+    ports = " ".join([*inputs, "y", *(["vdd", "vss"] if with_supplies else [])])
+    lines = [f".subckt {logic_subckt_name(kind, model, with_supplies)} {ports}"]
+    if not with_supplies:
+        lines += [f"Vsup vdd 0 DC {UNPOWERED_LOGIC_SUPPLY_V:g}", "Vgnd vss 0 DC 0"]
+    lines += [f"Rin_{pin} {pin} vss {_LOGIC_INPUT_R:g}" for pin in inputs]
+
+    if kind is ComponentKind.SCHMITT_INVERTER:
+        # The threshold follows the delayed output state: VT+ while the output is high,
+        # VT- while it is low. That positive feedback is the hysteresis.
+        span = family.schmitt_high - family.schmitt_low
+        state = _soft_high("d", f"0.5*{_LOGIC_SUPPLY}")
+        lines.append(f"Bth th vss V={_LOGIC_SUPPLY}*({family.schmitt_low}+{span:g}*{state})")
+        lines.append(f"Blogic l vss V={_LOGIC_SUPPLY}*(1-{_soft_high('a', 'V(th,vss)')})")
+    else:
+        threshold = f"{family.threshold}*{_LOGIC_SUPPLY}"
+        function = _LOGIC_FUNCTIONS[kind]
+        function = function.replace("A", _soft_high("a", threshold))
+        function = function.replace("B", _soft_high("b", threshold))
+        lines.append(f"Blogic l vss V={_LOGIC_SUPPLY}*{function}")
+
+    lines += [
+        f"Rdelay l d {_LOGIC_DELAY_R:g}",
+        f"Cdelay d vss {family.delay_s / _LOGIC_DELAY_R:g}",
+        "Bbuf o vss V=V(d,vss)",
+        f"Rout o y {family.output_ohms:g}",
+        ".ends",
+    ]
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- library section
+
+
+def library_text(
+    models: Iterable[DeviceModel],
+    opamps: Iterable[tuple[str, bool]],
+    logic: Iterable[tuple[ComponentKind, str, bool]] = (),
+) -> str:
+    """Deduplicated library section for the models, op-amps and logic gates in use."""
     cards = sorted({m.spice_name: m.text for m in models}.items())
-    subckts = sorted({opamp_subckt_name(m, s): opamp_subckt(m, s) for m, s in opamps}.items())
-    return "\n".join([text for _, text in cards] + [text for _, text in subckts])
+    subckts = {opamp_subckt_name(m, s): opamp_subckt(m, s) for m, s in opamps}
+    subckts |= {logic_subckt_name(k, m, s): logic_subckt(k, m, s) for k, m, s in logic}
+    return "\n".join([text for _, text in cards] + [text for _, text in sorted(subckts.items())])

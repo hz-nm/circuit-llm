@@ -1,23 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Circuit } from "../../api/types";
-import { formatSI } from "../../lib/si";
-import { useIsDark } from "../../ui/theme";
-import { cursorLabel, isDrivable, netKey, scaleStops, type LiveVoltages } from "../simulation/live";
+import { formatReadout } from "../../lib/si";
+import { cursorLabel, isDrivable, netKey, type LiveVoltages } from "../simulation/live";
 import type { SimulationSession } from "../simulation/session";
 
 const SWEEP_MS = 4000;
-
-/** Legend for the diverging wire colours: −max … 0 V … +max. */
-function VoltageLegend({ maxAbs }: { maxAbs: number }) {
-  const dark = useIsDark();
-  return (
-    <div className="flex items-center gap-2 text-[11px] text-muted" aria-label={`Wire colour: blue negative, grey 0 V, red positive, up to ${formatSI(maxAbs, "V")}`}>
-      <span className="tabular-nums">{formatSI(-maxAbs, "V", 2)}</span>
-      <span aria-hidden="true" className="h-2 w-24 rounded-full" style={{ background: scaleStops(dark) }} />
-      <span className="tabular-nums">+{formatSI(maxAbs, "V", 2)}</span>
-    </div>
-  );
-}
 
 /** Slider + play/pause over the driving sweep's x axis; the player loops in ~4 s. */
 function Scrubber({ live, session }: { live: Extract<LiveVoltages, { kind: "sweep" }>; session: SimulationSession }) {
@@ -51,7 +38,8 @@ function Scrubber({ live, session }: { live: Extract<LiveVoltages, { kind: "swee
   }, [playing, cursor, x0, span]);
 
   const value = x ?? x0;
-  const label = cursorLabel(live.sweep, value, (v, unit) => formatSI(v, unit, 4));
+  // Fixed-width readout: the label (and so the slider) never changes size while playing.
+  const label = cursorLabel(live.sweep, value, formatReadout);
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -75,7 +63,9 @@ function Scrubber({ live, session }: { live: Extract<LiveVoltages, { kind: "swee
         aria-valuetext={label}
         className="min-w-24 flex-1 accent-[var(--c-accent)]"
       />
-      <span className="w-28 shrink-0 font-mono text-xs tabular-nums">{label}</span>
+      <span className="shrink-0 whitespace-pre font-mono text-xs tabular-nums" style={{ minWidth: `${label.length}ch` }}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -96,13 +86,13 @@ function NetList({ circuit, session, voltages }: { circuit: Circuit; session: Si
             aria-pressed={on}
             onClick={() => probes.toggle(net)}
             title={on ? `Remove probe from ${net}` : `Probe ${net}`}
-            className={`rounded-full border px-2 py-0.5 font-mono text-[11px] focus-visible:outline-2 focus-visible:outline-accent ${
+            className={`whitespace-pre rounded-full border px-2 py-0.5 font-mono text-[11px] tabular-nums focus-visible:outline-2 focus-visible:outline-accent ${
               on ? "border-accent bg-accent-soft text-ink" : "border-line text-muted hover:text-ink"
             }`}
           >
             {on ? "◉ " : "○ "}
             {net}
-            {v !== undefined && <span className="ml-1 tabular-nums opacity-80">{formatSI(v, "V", 3)}</span>}
+            {v !== undefined && <span className="opacity-80"> {formatReadout(v, "V")}</span>}
           </button>
         );
       })}
@@ -115,12 +105,10 @@ export function LiveDock({
   circuit,
   session,
   voltages,
-  enabled,
 }: {
   circuit: Circuit;
   session: SimulationSession;
   voltages: ReadonlyMap<string, number> | null;
-  enabled: boolean;
 }) {
   const { live, result, driver, setDriver } = session;
   const sweeps = (result?.ok ? (result.analyses ?? []) : []).flatMap((a, i) => (isDrivable(a) ? [{ a, i }] : []));
@@ -129,8 +117,8 @@ export function LiveDock({
   return (
     <div className="border-t border-line bg-panel px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {enabled && live?.kind === "sweep" && <Scrubber live={live} session={session} />}
-        {enabled && live?.kind === "static" && <span className="text-xs text-muted">Operating point</span>}
+        {live?.kind === "sweep" && <Scrubber live={live} session={session} />}
+        {live?.kind === "static" && <span className="text-xs text-muted">Operating point</span>}
         {!live && <span className="text-xs text-muted">{result === null ? "Not simulated yet: press ▶ Run" : "No node voltages in this result"}</span>}
         {sweeps.length > 1 && (
           <label className="flex items-center gap-1.5 text-xs text-muted">
@@ -148,7 +136,6 @@ export function LiveDock({
             </select>
           </label>
         )}
-        {enabled && live && live.maxAbs > 0 && <VoltageLegend maxAbs={live.maxAbs} />}
         <button
           type="button"
           aria-expanded={showNets}
@@ -160,8 +147,8 @@ export function LiveDock({
       </div>
       {showNets && (
         <div className="mt-2">
-          <NetList circuit={circuit} session={session} voltages={enabled ? voltages : null} />
-          <p className="mt-1 text-[11px] text-muted">Click a wire or a net here to toggle its probe; probed nets appear in the Simulation plots.</p>
+          <NetList circuit={circuit} session={session} voltages={voltages} />
+          <p className="mt-1 text-[11px] text-muted">Click a wire or a net here to toggle its probe; probed nets appear in the Simulation plots. Hover a part for its multimeter, click to pin.</p>
         </div>
       )}
     </div>

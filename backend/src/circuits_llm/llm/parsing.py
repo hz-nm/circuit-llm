@@ -34,7 +34,7 @@ from circuits_llm.domain import (
     resolve_kind,
     resolve_model,
 )
-from circuits_llm.domain.circuit import MAX_ANALYSES, MAX_COMPONENTS, MAX_PROBES
+from circuits_llm.domain.circuit import MAX_ANALYSES, MAX_COMPONENTS, MAX_PROBES, MAX_PWL_POINTS
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,18 @@ def _find_envelope(raw: str) -> tuple[Json, str] | None:
         if fallback is None and "reply" in data:
             fallback = (data, candidate)
     return fallback
+
+
+def find_json_object(raw: str, *required_keys: str) -> Json | None:
+    """The first JSON object in ``raw`` (fenced, wrapped in prose, or sloppy) with all of
+    ``required_keys``, with keys lower-cased."""
+    for candidate in _json_candidates(raw[:MAX_INPUT_CHARS]):
+        parsed = _loads_lenient(candidate)
+        if isinstance(parsed, dict):
+            data = _lower_keys(cast(Json, parsed))
+            if all(key in data for key in required_keys):
+                return data
+    return None
 
 
 def _json_candidates(text: str) -> Iterator[str]:
@@ -344,6 +356,8 @@ _ANALYSIS_ALIASES: Final[dict[str, str]] = {
     ),
 }
 
+_PWL_SHAPES: Final = frozenset({"pwl", "piecewise", "piecewise_linear", "profile", "points"})
+_RAMP_SHAPES: Final = frozenset({"ramp", "linear_ramp", "slope"})
 _SINE_SHAPES: Final = frozenset({"sine", "sin", "sinusoidal", "sinusoid", "ac", "sinewave"})
 _PULSE_SHAPES: Final = frozenset(
     {"pulse", "square", "clock", "squarewave", "pwm", "rectangular", "rect", "pulse_train"}
@@ -358,7 +372,7 @@ _SOURCE_VALUE_KEYS: Final[dict[ComponentKind, tuple[str, ...]]] = {
     ComponentKind.ZENER: ("breakdown_voltage", "zener_voltage", "voltage", "vz"),
 }
 
-_SPICE_WAVE_RE: Final = re.compile(r"\b(sin|sine|pulse)\s*\(([^)]*)\)", re.IGNORECASE)
+_SPICE_WAVE_RE: Final = re.compile(r"\b(sin|sine|pulse|pwl)\s*\(([^)]*)\)", re.IGNORECASE)
 _SPICE_AC_RE: Final = re.compile(r"\bac\s+([^\s,()]+)", re.IGNORECASE)
 _PROBE_RE: Final = re.compile(r"^\s*([VvIi])\s*\(\s*([^)]*?)\s*\)\s*$")
 
@@ -605,10 +619,58 @@ class _CircuitBuilder:
             return self._sine(data, where)
         if shape in _PULSE_SHAPES:
             return self._pulse(data, where)
-        self.problem(f"{where}: shape '{shape}' is not supported; use 'sine' or 'pulse'.")
+        if shape in _RAMP_SHAPES:
+            return self._ramp(data, where)
+        if shape in _PWL_SHAPES or "points" in data:
+            return self._pwl(_pick(data, "points", "values", "pwl", "data"), where)
+        self.problem(f"{where}: shape '{shape}' is not supported; use 'sine', 'pulse' or 'pwl'.")
         return None
 
+    def _pwl(self, raw: object, where: str) -> Json | None:
+        """Points as [[t, v], ...], [{"time": t, "value": v}, ...] or a flat [t, v, t, v]."""
+        items = _as_items(raw)
+        if items and not isinstance(items[0], list | tuple | dict):
+            items = [items[i : i + 2] for i in range(0, len(items) - 1, 2)]
+        points: dict[float, float] = {}
+        for item in items[: MAX_PWL_POINTS * 2]:
+            pair: Sequence[object] | None = None
+            if isinstance(item, list | tuple):
+                pair = cast(Sequence[object], item)
+            elif isinstance(item, dict):
+                entry = _lower_keys(cast(Json, item))
+                pair = (_pick(entry, "time", "t"), _pick(entry, "value", "v", "voltage"))
+            if pair is None or len(pair) != 2:
+                self.problem(f"{where}: every point must be a [time, value] pair.")
+                return None
+            time, value = self.number(pair[0], where), self.number(pair[1], where)
+            if time is None or value is None:
+                return None
+            points[max(time, 0.0)] = value  # a repeated time keeps the last value
+        ordered = sorted(points.items())[:MAX_PWL_POINTS]
+        if len(ordered) < 2:
+            self.problem(f"{where}: a pwl needs at least two points, e.g. [[0, 18], [5, 0]].")
+            return None
+        return {"shape": "pwl", "points": [list(point) for point in ordered]}
+
+    def _ramp(self, data: Json, where: str) -> Json | None:
+        """A single ramp from ``start`` to ``stop`` over ``duration``, as a pwl."""
+
+        def number(keys: Sequence[str]) -> float | None:
+            return self.optional_number(data, keys, where)
+
+        start = number(("start", "from", "initial", "v1", "start_value"))
+        stop = number(("stop", "to", "final", "end", "v2", "stop_value", "end_value"))
+        duration = number(("duration", "ramp_time", "time", "rise", "length"))
+        if start is None or stop is None or duration is None or duration <= 0:
+            self.problem(f"{where}: a ramp needs 'start', 'stop' and a positive 'duration'.")
+            return None
+        delay = max(number(("delay", "td")) or 0.0, 0.0)
+        points = [[0.0, start], [delay, start]] if delay > 0 else [[0.0, start]]
+        return {"shape": "pwl", "points": [*points, [delay + duration, stop]]}
+
     def _spice_waveform(self, shape: str, values: Sequence[str], where: str) -> Json | None:
+        if shape == "pwl":
+            return self._pwl(list(values), where)
         fields = (
             ("offset", "amplitude", "frequency", "delay", "damping", "phase")
             if shape in ("sin", "sine")
@@ -670,6 +732,11 @@ class _CircuitBuilder:
                 "(plus 'width' or 'duty')."
             )
             return None
+        # Repair timings whose intent is clear instead of bouncing them back to the model.
+        rise, fall = abs(rise) or 1e-9, abs(fall) or 1e-9
+        if width <= 0:
+            width = max(period * 1e-3, 1e-9)
+        period = max(period, rise + width + fall)
         return {
             "shape": "pulse",
             "initial": initial or 0.0,

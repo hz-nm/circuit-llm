@@ -38,6 +38,9 @@ export interface SimulationSession {
   live: LiveVoltages | null;
   cursor: CursorStore;
   probes: Probes;
+  /** Multimeter cards pinned on the schematic (component ids); kept across tab switches. */
+  pinned: string[];
+  setPinned: (update: (list: string[]) => string[]) => void;
 }
 
 const Context = createContext<SimulationSession | null>(null);
@@ -173,6 +176,8 @@ export function SimulationSessionProvider({ projectId, version, available, child
   }, [live, cursor]);
 
   const probes = useProbes(projectId, version.number, version.circuit, result);
+  const [pinned, setPinnedState] = useState<string[]>([]);
+  const setPinned = useCallback((update: (list: string[]) => string[]) => setPinnedState(update), []);
   const running = status.kind === "running";
   const shownStatus = useMemo<RunStatus>(
     () => (status.kind === "ready" && !available ? { kind: "blocked", reason: "No simulator (ngspice missing)" } : status),
@@ -196,8 +201,10 @@ export function SimulationSessionProvider({ projectId, version, available, child
       live,
       cursor,
       probes,
+      pinned,
+      setPinned,
     }),
-    [projectId, version, result, shownStatus, running, run, stop, autoRun, setAutoRun, lastRun, driver, live, cursor, probes],
+    [projectId, version, result, shownStatus, running, run, stop, autoRun, setAutoRun, lastRun, driver, live, cursor, probes, pinned, setPinned],
   );
 
   return <Context.Provider value={session}>{children}</Context.Provider>;

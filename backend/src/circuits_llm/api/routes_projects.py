@@ -274,7 +274,11 @@ async def _design_turn(
     )
     try:
         async for event in run_design(
-            request, endpoints, client=services.http, extra_checks=checks
+            request,
+            endpoints,
+            client=services.http,
+            extra_checks=checks,
+            plan_first=services.settings.plan_before_design,
         ):
             if isinstance(event, DesignCompleted | DesignFailed):
                 outcome = event

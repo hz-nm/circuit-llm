@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from circuits_llm.domain import AcSweep, ComponentKind, SineWave, Transient
+from circuits_llm.domain import AcSweep, ComponentKind, PulseWave, PwlWave, SineWave, Transient
 from circuits_llm.llm import parse_model_output
 from circuits_llm.llm.prompts import FEW_SHOT_EXAMPLES, response_schema, system_prompt
 
 
-@pytest.mark.parametrize("example", [answer for _, answer in FEW_SHOT_EXAMPLES])
+@pytest.mark.parametrize("example", [answer for _, answer, _ in FEW_SHOT_EXAMPLES])
 def test_few_shot_examples_are_valid(example: dict[str, object]) -> None:
     result = parse_model_output(json.dumps(example))
     assert result.problems == []
@@ -182,3 +182,43 @@ def test_question_only_and_unusable_answers() -> None:
             '{"reply": "cut off',
         ).problems[0]
     )
+
+
+def _source_waveform(waveform: object) -> object:
+    answer = {
+        "reply": "r",
+        "circuit": {
+            "title": "t",
+            "components": [
+                {"id": "V1", "kind": "voltage_source", "waveform": waveform, "pins": ["IN", "0"]},
+                {"id": "R1", "kind": "resistor", "value": "1k", "pins": ["IN", "0"]},
+            ],
+        },
+    }
+    result = parse_model_output(json.dumps(answer))
+    assert result.circuit is not None, result.problems
+    return result.circuit.components[0].waveform
+
+
+def test_ramps_profiles_and_bad_pulse_timings_are_accepted() -> None:
+    ramp = _source_waveform({"shape": "ramp", "start": 18, "stop": "0", "duration": "5"})
+    assert isinstance(ramp, PwlWave) and ramp.points == [(0, 18), (5, 0)]
+
+    profile = _source_waveform({"type": "pwl", "points": [{"t": 0, "v": 18}, {"t": "10m", "v": 0}]})
+    assert isinstance(profile, PwlWave) and profile.points[1] == (0.01, 0)
+
+    # Weak models write slow pulses whose edges exceed the period, or zero widths; the intent
+    # is clear, so the period is stretched and the width made positive instead of rejecting.
+    pulse = _source_waveform(
+        {
+            "shape": "pulse",
+            "initial": 18,
+            "pulsed": 0,
+            "rise": 5,
+            "fall": 5,
+            "width": 0,
+            "period": 5,
+        }
+    )
+    assert isinstance(pulse, PulseWave) and pulse.width > 0
+    assert pulse.period >= pulse.rise + pulse.width + pulse.fall

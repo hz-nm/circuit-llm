@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { formatSI, formatTick } from "../../lib/si";
+import { formatReadout, formatTick } from "../../lib/si";
 import { useIsDark } from "../../ui/theme";
 import type { CursorStore } from "./live";
 
@@ -64,7 +64,8 @@ export function UPlotChart(props: UPlotChartProps) {
   const plotRef = useRef<uPlot | null>(null);
   const [cursorIdx, setCursorIdx] = useState<number | null>(null);
 
-  const formatY = (v: number) => (plainY ? `${Number(v.toPrecision(4))} ${yUnit}` : formatSI(v, yUnit, 4));
+  // Fixed-width readouts (dB/degrees get a fixed decimal count) so the legend never shifts while the cursor moves.
+  const formatY = (v: number) => (plainY ? `${v.toFixed(1).padStart(7, "\u2007")} ${yUnit}` : formatReadout(v, yUnit));
 
   const seriesKey = series.map((s) => `${s.name}:${s.colorIndex}`).join("|");
 
@@ -181,7 +182,7 @@ export function UPlotChart(props: UPlotChartProps) {
         <span className="font-medium text-ink">{title}</span>
         {xAtCursor !== undefined && (
           <span className="text-muted">
-            at {xLabel} = <strong className="text-ink">{formatSI(xAtCursor, xUnit, 4)}</strong>
+            at {xLabel} = <strong className="whitespace-pre font-mono tabular-nums text-ink">{formatReadout(xAtCursor, xUnit)}</strong>
           </span>
         )}
       </figcaption>
@@ -194,7 +195,7 @@ export function UPlotChart(props: UPlotChartProps) {
               <span className="inline-flex items-center gap-1.5">
                 <span aria-hidden="true" className="inline-block h-0.5 w-4 rounded" style={{ background: seriesColor(s.colorIndex, dark) }} />
                 <span className="font-mono text-ink">{s.name}</span>
-                {value !== undefined && s.visible && <strong className="tabular-nums text-ink">{formatY(value)}</strong>}
+                {value !== undefined && s.visible && <strong className="whitespace-pre font-mono tabular-nums text-ink">{formatY(value)}</strong>}
               </span>
             </li>
           );

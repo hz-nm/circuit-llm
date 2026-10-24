@@ -5,6 +5,7 @@ import { SYMBOLS } from "./symbols";
 /** Short value text for a component, e.g. "4.7 kΩ", "sine 1 V @ 1 kHz", "2N3904" (mirrors the backend). */
 export function componentSummary(component: Component): string {
   const symbol = SYMBOLS[component.kind];
+  if (symbol.summary) return symbol.summary(component) ?? "";
   const unit = symbol.valueUnit ?? "";
   const parts: string[] = [];
   if (component.value !== undefined && component.value !== null && symbol.valueUnit !== null) {
@@ -14,8 +15,11 @@ export function componentSummary(component: Component): string {
   if (waveform) {
     if (waveform.shape === "sine") {
       parts.push(`sine ${formatSI(waveform.amplitude, unit)} @ ${formatSI(waveform.frequency, "Hz")}`);
-    } else {
+    } else if (waveform.shape === "pulse") {
       parts.push(`pulse ${formatSI(waveform.initial, unit)}→${formatSI(waveform.pulsed, unit)}`);
+    } else {
+      const shown = waveform.points.slice(0, 4).map(([, v]) => formatSI(v, unit));
+      parts.push(`pwl ${shown.join(" → ")}${waveform.points.length > 4 ? " …" : ""}`);
     }
   }
   if (component.ac_magnitude) parts.push(`AC ${component.ac_magnitude}`);

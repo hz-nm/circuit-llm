@@ -169,13 +169,15 @@ def _check_component(c: Component, spec: ComponentSpec) -> Iterator[Issue]:
             net=connected[0],
         )
 
-    if c.kind is ComponentKind.OPAMP and ("v+" in c.pins) != ("v-" in c.pins):
-        yield _error(
-            "partial_opamp_supply",
-            f"{name}: connect both supply pins 'v+' and 'v-' (use GND for 'v-' on a single "
-            "supply), or neither for an ideal op-amp.",
-            component=c.id,
-        )
+    if spec.supply_pins is not None:
+        positive, negative = spec.supply_pins
+        if (positive in c.pins) != (negative in c.pins):
+            yield _error(
+                "partial_supply",
+                f"{name}: connect both supply pins '{positive}' and '{negative}' (use GND for "
+                f"'{negative}' on a single supply), or neither for an ideal part.",
+                component=c.id,
+            )
 
 
 # --------------------------------------------------------------------------- nets

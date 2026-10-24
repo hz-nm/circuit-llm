@@ -18,6 +18,7 @@ from circuits_llm.llm import (
     ErrorKind,
     Message,
     ModelEndpoint,
+    Planned,
     Provider,
     ProviderError,
     ProviderKind,
@@ -64,7 +65,10 @@ def _endpoint(endpoint_id: str) -> ModelEndpoint:
 
 
 def _run(
-    providers: dict[str, FakeProvider], request: DesignRequest | None = None
+    providers: dict[str, FakeProvider],
+    request: DesignRequest | None = None,
+    *,
+    plan_first: bool = False,
 ) -> list[DesignEvent]:
     def factory(endpoint: ModelEndpoint, client: httpx.AsyncClient) -> Provider:
         return providers[endpoint.id]
@@ -76,6 +80,7 @@ def _run(
                 [_endpoint(i) for i in providers],
                 client=client,
                 provider_factory=factory,
+                plan_first=plan_first,
             )
             return [event async for event in stream]
 
@@ -128,3 +133,30 @@ def _no_endpoint_error() -> str:
     events = _run({})
     assert len(events) == 1 and isinstance(events[0], DesignFailed)
     return events[0].error
+
+
+def test_planner_narrows_the_designer_prompt() -> None:
+    plan = json.dumps({"families": ["Gates"], "plan": "1. Schmitt inverter on a divider."})
+    provider = FakeProvider([f"Sure!\n```json\n{plan}\n```", VALID_ANSWER])
+
+    events = _run({"a": provider}, plan_first=True)
+
+    planned = events[0]
+    assert isinstance(planned, Planned)
+    assert planned.families == ["core", "logic"]  # alias resolved, core always included
+    assert isinstance(events[-1], DesignCompleted)
+    designer_system, *_, designer_user = provider.calls[1]
+    assert '"schmitt_inverter"' in designer_system.content
+    assert '"npn"' not in designer_system.content  # transistors were not chosen
+    assert "Schmitt inverter on a divider" in designer_user.content
+
+
+def test_unusable_plan_falls_back_to_every_family() -> None:
+    provider = FakeProvider(["I think you need some gates.", VALID_ANSWER])
+
+    events = _run({"a": provider}, plan_first=True)
+
+    planned = events[0]
+    assert isinstance(planned, Planned) and planned.fallback
+    assert '"npn"' in provider.calls[1][0].content
+    assert isinstance(events[-1], DesignCompleted)

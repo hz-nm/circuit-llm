@@ -173,6 +173,59 @@ def test_rc_charging_transient() -> None:
 
 
 @requires_ngspice
+def test_street_lamp_schmitt_hysteresis() -> None:
+    # Panel voltage falls 18 -> 0 V (dusk) then rises back (dawn); a Schmitt inverter on
+    # a divider drives a MOSFET switching a 50 W / 12 V lamp.
+    dusk_to_dawn = {
+        "shape": "pulse", "initial": 18, "pulsed": 0, "rise": 0.4, "fall": 0.4,
+        "width": 0.1, "period": 1.0,
+    }  # fmt: skip
+    result = _simulate(
+        {
+            "title": "street lamp",
+            "components": [
+                _vsrc("VBAT", "VBAT", "GND", value=12),
+                _vsrc("VSOLAR", "SOLAR", "GND", waveform=dusk_to_dawn),
+                _two_pin("resistor", "R1", "SOLAR", "SENSE", 10e3),
+                _two_pin("resistor", "R2", "SENSE", "GND", 22e3),
+                {
+                    "id": "U1",
+                    "kind": "schmitt_inverter",
+                    "pins": {"a": "SENSE", "y": "GATE", "vdd": "VBAT", "vss": "GND"},
+                },
+                {
+                    "id": "M1",
+                    "kind": "nmos",
+                    "model": "IRFZ44N",
+                    "pins": {"drain": "DRAIN", "gate": "GATE", "source": "GND"},
+                },
+                {
+                    "id": "LA1",
+                    "kind": "lamp",
+                    "value": 50,
+                    "model": "12V",
+                    "pins": {"1": "VBAT", "2": "DRAIN"},
+                },
+            ],
+            "analyses": [{"type": "tran", "stop_time": 1.0, "step_time": 1e-3}],
+        }
+    )
+    assert result.ok, result.error
+    tran = _sweep(result, 1)
+    time = tran.x.values
+    lamp_current = next(t.values for t in tran.traces if t.component == "LA1")
+
+    def lamp_watts(at: float) -> float:
+        index = min(range(len(time)), key=lambda i: abs(time[i] - at))
+        return lamp_current[index] ** 2 * 2.88  # R = 12^2 / 50
+
+    assert lamp_watts(0.02) < 1  # day: off
+    assert lamp_watts(0.5) == pytest.approx(50, rel=0.05)  # night: full power
+    assert lamp_watts(0.65) > 45  # dawn at 6.75 V: still on (hysteresis)
+    assert lamp_watts(0.85) < 1  # bright again: off
+
+
+@requires_ngspice
 def test_timeout_becomes_issue() -> None:
     assert NGSPICE is not None
     circuit = Circuit.model_validate(

@@ -1073,12 +1073,16 @@
                   },
                   {
                     "$ref": "#/components/schemas/PulseWave"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PwlWave"
                   }
                 ],
                 "discriminator": {
                   "propertyName": "shape",
                   "mapping": {
                     "pulse": "#/components/schemas/PulseWave",
+                    "pwl": "#/components/schemas/PwlWave",
                     "sine": "#/components/schemas/SineWave"
                   }
                 }
@@ -1137,7 +1141,15 @@
           "pnp",
           "nmos",
           "pmos",
-          "opamp"
+          "opamp",
+          "lamp",
+          "not_gate",
+          "and_gate",
+          "or_gate",
+          "nand_gate",
+          "nor_gate",
+          "xor_gate",
+          "schmitt_inverter"
         ],
         "title": "ComponentKind"
       },
@@ -1959,6 +1971,43 @@
         ],
         "title": "PulseWave"
       },
+      "PwlWave": {
+        "properties": {
+          "shape": {
+            "type": "string",
+            "const": "pwl",
+            "title": "Shape",
+            "default": "pwl"
+          },
+          "points": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "number",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 2,
+            "title": "Points"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "points"
+        ],
+        "title": "PwlWave",
+        "description": "Piecewise-linear waveform: straight lines through ``(time, value)`` points.\n\nHolds the last value after the final point. Good for ramps and slow profiles such\nas a solar panel going from day to night."
+      },
       "Severity": {
         "type": "string",
         "enum": [
@@ -2176,6 +2225,17 @@
               }
             ],
             "title": "Net"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
           },
           "probed": {
             "type": "boolean",
@@ -2481,6 +2541,45 @@
         "title": "EndpointFailed",
         "type": "object"
       },
+      "Planned": {
+        "additionalProperties": false,
+        "description": "The design was planned: the component families to use and a short sketch.",
+        "properties": {
+          "type": {
+            "const": "planned",
+            "default": "planned",
+            "title": "Type",
+            "type": "string"
+          },
+          "endpoint_id": {
+            "title": "Endpoint Id",
+            "type": "string"
+          },
+          "families": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Families",
+            "type": "array"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "fallback": {
+            "title": "Fallback",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "endpoint_id",
+          "families",
+          "plan",
+          "fallback"
+        ],
+        "title": "Planned",
+        "type": "object"
+      },
       "TurnSaved": {
         "additionalProperties": false,
         "description": "Final stream event: what was persisted for this turn.",
@@ -2557,12 +2656,16 @@
             "completed": "#/components/schemas/DesignCompleted",
             "endpoint_failed": "#/components/schemas/EndpointFailed",
             "failed": "#/components/schemas/DesignFailed",
+            "planned": "#/components/schemas/Planned",
             "saved": "#/components/schemas/TurnSaved",
             "validation_failed": "#/components/schemas/ValidationFailed"
           },
           "propertyName": "type"
         },
         "oneOf": [
+          {
+            "$ref": "#/components/schemas/Planned"
+          },
           {
             "$ref": "#/components/schemas/AttemptStarted"
           },

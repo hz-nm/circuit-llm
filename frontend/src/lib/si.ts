@@ -70,3 +70,33 @@ export function parseEng(text: string): number | null {
 export function formatEng(value: number): string {
   return formatSI(value, "", 4).replace(" ", "").replace("µ", "u");
 }
+
+const FIGURE_SPACE = "\u2007"; // as wide as a digit in tabular/monospace fonts
+
+/**
+ * Fixed-width live readout, e.g. " 16.3  V", "−1.25 mA", "  142 mW": a sign
+ * column, a 3-significant-digit mantissa padded to 4 characters, and an SI
+ * prefix padded to 1 character. Every value with the same unit renders as a
+ * string of the same length, so animated readouts (in a monospace or
+ * tabular-nums font) never change width.
+ */
+export function formatReadout(value: number, unit: string): string {
+  if (!Number.isFinite(value)) return `${FIGURE_SPACE}${"–".padStart(4, FIGURE_SPACE)} ${FIGURE_SPACE}${unit}`;
+  const magnitude = Math.abs(value);
+  let scale = 1;
+  let prefix = "";
+  if (magnitude >= 1e-15) {
+    const found = PREFIXES.find(([s]) => magnitude >= s * 0.9995) ?? PREFIXES[PREFIXES.length - 1]!;
+    [scale, prefix] = found;
+  }
+  let mantissa = magnitude / scale;
+  // Rounding can carry into the next prefix (999.7 m -> 1.00).
+  if (Number(mantissa.toPrecision(3)) >= 1000 && scale < 1e12) {
+    const next = PREFIXES[PREFIXES.findIndex(([s]) => s === scale) - 1]!;
+    [scale, prefix] = next;
+    mantissa = magnitude / scale;
+  }
+  const digits = mantissa === 0 ? "0.00" : mantissa.toPrecision(3);
+  const sign = value < 0 && Number(digits) !== 0 ? "−" : FIGURE_SPACE;
+  return `${sign}${digits.padStart(4, FIGURE_SPACE)} ${(prefix || FIGURE_SPACE)}${unit}`;
+}

@@ -54,9 +54,20 @@ export function defaultDriver(result: SimulationResult | null | undefined): numb
 export const netKey = (net: string) => net.toUpperCase();
 
 /** Node voltages ready for the schematic: static (op) or per-net arrays over x (sweep). */
+/**
+ * Live data for the schematic and multimeter: node voltages keyed by net and
+ * currents keyed by component id (both upper-cased), static (op) or per sample.
+ */
 export type LiveVoltages =
-  | { kind: "static"; values: Map<string, number>; maxAbs: number }
-  | { kind: "sweep"; x: Float64Array; values: Map<string, Float64Array>; maxAbs: number; sweep: SweepResult };
+  | { kind: "static"; values: Map<string, number>; currents: Map<string, number>; maxAbs: number }
+  | {
+      kind: "sweep";
+      x: Float64Array;
+      values: Map<string, Float64Array>;
+      currents: Map<string, Float64Array>;
+      maxAbs: number;
+      sweep: SweepResult;
+    };
 
 export function buildLiveVoltages(result: SimulationResult | null | undefined, driver: number | null): LiveVoltages | null {
   if (!result?.ok) return null;
@@ -64,14 +75,16 @@ export function buildLiveVoltages(result: SimulationResult | null | undefined, d
   const sweep = driver !== null ? analyses[driver] : undefined;
   if (sweep && isDrivable(sweep)) {
     const values = new Map<string, Float64Array>();
+    const currents = new Map<string, Float64Array>();
     let maxAbs = 0;
     for (const trace of sweep.traces) {
+      if (trace.component && trace.unit === "A") currents.set(netKey(trace.component), Float64Array.from(trace.values));
       if (!trace.net || trace.unit !== "V") continue;
       const arr = Float64Array.from(trace.values);
       for (const v of arr) maxAbs = Math.max(maxAbs, Math.abs(v));
       values.set(netKey(trace.net), arr);
     }
-    if (values.size > 0) return { kind: "sweep", x: Float64Array.from(sweep.x.values), values, maxAbs, sweep };
+    if (values.size > 0) return { kind: "sweep", x: Float64Array.from(sweep.x.values), values, currents, maxAbs, sweep };
   }
   const op = analyses.find((a) => a.type === "op");
   if (op && op.type === "op") {
@@ -81,7 +94,8 @@ export function buildLiveVoltages(result: SimulationResult | null | undefined, d
       values.set(netKey(net), v);
       maxAbs = Math.max(maxAbs, Math.abs(v));
     }
-    return { kind: "static", values, maxAbs };
+    const currents = new Map(Object.entries(op.branch_currents).map(([id, i]) => [netKey(id), i]));
+    return { kind: "static", values, currents, maxAbs };
   }
   return null;
 }
@@ -105,6 +119,15 @@ export function sampleAt(xs: ArrayLike<number>, ys: ArrayLike<number>, x: number
   return ys[lo]! + (ys[hi]! - ys[lo]!) * t;
 }
 
+/** Currents of every metered component at the cursor position (or the static op values). */
+export function currentsAt(live: LiveVoltages, x: number | null): Map<string, number> {
+  if (live.kind === "static") return live.currents;
+  const at = x ?? live.x[0] ?? 0;
+  const out = new Map<string, number>();
+  for (const [id, ys] of live.currents) out.set(id, sampleAt(live.x, ys, at));
+  return out;
+}
+
 /** Voltages of every net at the cursor position (or the static op values). */
 export function voltagesAt(live: LiveVoltages, x: number | null): Map<string, number> {
   if (live.kind === "static") return live.values;
@@ -112,32 +135,6 @@ export function voltagesAt(live: LiveVoltages, x: number | null): Map<string, nu
   const out = new Map<string, number>();
   for (const [net, ys] of live.values) out.set(net, sampleAt(live.x, ys, at));
   return out;
-}
-
-// ---------------------------------------------------------------------------- colour scale
-
-type Rgb = readonly [number, number, number];
-const hex = (h: string): Rgb => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-
-/** Diverging scale: negative = blue, 0 V = neutral grey, positive = red; separate steps per theme. */
-const SCALE = {
-  light: { neg: hex("#1d4ed8"), mid: hex("#9ca3af"), pos: hex("#dc2626") },
-  dark: { neg: hex("#60a5fa"), mid: hex("#6b7280"), pos: hex("#f87171") },
-} as const;
-
-export function voltageColor(v: number, maxAbs: number, dark: boolean): string {
-  const scale = dark ? SCALE.dark : SCALE.light;
-  const t = maxAbs > 0 ? Math.max(-1, Math.min(1, v / maxAbs)) : 0;
-  const end = t < 0 ? scale.neg : scale.pos;
-  const k = Math.abs(t);
-  const c = scale.mid.map((m, i) => Math.round(m + (end[i]! - m) * k));
-  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
-}
-
-export function scaleStops(dark: boolean): string {
-  const s = dark ? SCALE.dark : SCALE.light;
-  const css = (c: Rgb) => `rgb(${c.join(",")})`;
-  return `linear-gradient(to right, ${css(s.neg)}, ${css(s.mid)}, ${css(s.pos)})`;
 }
 
 /** Label for the x axis position, e.g. "t = 1.25 ms" or "V1 = 2.5 V". */

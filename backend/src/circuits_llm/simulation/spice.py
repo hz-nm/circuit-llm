@@ -29,15 +29,19 @@ from circuits_llm.domain import (
     DcSweep,
     OperatingPoint,
     PulseWave,
+    PwlWave,
     SineWave,
     Transient,
 )
 
 from .library import (
+    LOGIC_FAMILIES,
+    LOGIC_KINDS,
     OPAMP_MODELS,
     DeviceModel,
     discrete_model,
     library_text,
+    logic_subckt_name,
     opamp_subckt_name,
     zener_model,
 )
@@ -45,6 +49,7 @@ from .library import (
 SPICE_GROUND: Final = "0"
 MAX_DEFAULT_TRACES: Final = 8
 MAX_NODE_TRACES: Final = 64  # node voltages recorded for schematic animation
+MAX_METERED_COMPONENTS: Final = 64  # two-pin parts whose current is always recorded
 # Transient output is interpolated onto a grid of at most this many points (the
 # solver's maximum internal step is still the requested step_time).
 MAX_TRAN_OUTPUT_POINTS: Final = 100_000
@@ -68,6 +73,14 @@ _ELEMENT_LETTER: Final[dict[ComponentKind, str]] = {
     ComponentKind.NMOS: "M",
     ComponentKind.PMOS: "M",
     ComponentKind.OPAMP: "X",
+    ComponentKind.LAMP: "R",
+    ComponentKind.NOT_GATE: "X",
+    ComponentKind.AND_GATE: "X",
+    ComponentKind.OR_GATE: "X",
+    ComponentKind.NAND_GATE: "X",
+    ComponentKind.NOR_GATE: "X",
+    ComponentKind.XOR_GATE: "X",
+    ComponentKind.SCHMITT_INVERTER: "X",
 }
 _PASSIVES: Final = frozenset(
     {ComponentKind.RESISTOR, ComponentKind.CAPACITOR, ComponentKind.INDUCTOR}
@@ -87,11 +100,16 @@ class TraceSpec:
     name: str  # display name, e.g. "V(OUT)" or "I(R1)"
     unit: str  # "V" or "A"
     net: str | None = None  # set for node-voltage traces
-    probed: bool = True  # False: recorded only so every net can be animated
+    probed: bool = True  # False: recorded only for animation and the multimeter
+    component: str | None = None  # set for component-current traces
 
 
 def _voltage_trace(net: str, *, probed: bool) -> TraceSpec:
     return TraceSpec(f"v({net.lower()})", f"V({net})", "V", net=net, probed=probed)
+
+
+def _current_trace(vector: str, component: Component, *, probed: bool) -> TraceSpec:
+    return TraceSpec(vector, f"I({component.id})", "A", probed=probed, component=component.id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +226,21 @@ def _current_probe_targets(circuit: Circuit) -> list[Component]:
     return list(targets.values())
 
 
+def _metered_components(circuit: Circuit, probed: list[Component]) -> list[Component]:
+    """Probed parts plus every other two-pin part (bounded) so the multimeter has currents.
+
+    Voltage sources report their own branch current and need no sense source.
+    """
+    metered = {c.id: c for c in probed}
+    for component in circuit.components:
+        if len(metered) >= MAX_METERED_COMPONENTS:
+            break
+        two_pin = len(CATALOG[component.kind].pins) == 2
+        if two_pin and component.kind is not ComponentKind.VOLTAGE_SOURCE:
+            metered.setdefault(component.id, component)
+    return list(metered.values())
+
+
 def _current_vector(component: Component, names: _Names) -> str:
     if component.kind is ComponentKind.VOLTAGE_SOURCE:
         return f"i({names.element[component.id].lower()})"
@@ -233,10 +266,14 @@ def _traces(circuit: Circuit, names: _Names) -> tuple[TraceSpec, ...]:
         component = circuit.component(probe.target)
         assert component is not None  # validated by _current_probe_targets
         vector = _current_vector(component, names)
-        traces.setdefault(vector, TraceSpec(vector, f"I({component.id})", "A"))
+        traces.setdefault(vector, _current_trace(vector, component, probed=True))
 
     for net in nets[:MAX_NODE_TRACES]:
         traces.setdefault(net, _voltage_trace(net, probed=False))
+    for component in circuit.components:
+        if component.id in names.sense_source or component.kind is ComponentKind.VOLTAGE_SOURCE:
+            vector = _current_vector(component, names)
+            traces.setdefault(vector, _current_trace(vector, component, probed=False))
     return tuple(traces.values())
 
 
@@ -270,6 +307,10 @@ def _source_spec(component: Component) -> str:
                 f" PULSE({_num(pulse.initial)} {_num(pulse.pulsed)} {_num(pulse.delay)} "
                 f"{_num(pulse.rise)} {_num(pulse.fall)} {_num(pulse.width)} {_num(pulse.period)})"
             )
+        case PwlWave() as pwl:
+            dc = pwl.points[0][1]
+            pairs = " ".join(f"{_num(t)} {_num(v)}" for t, v in pwl.points)
+            wave = f" PWL({pairs})"
         case None:
             dc, wave = 0.0, ""
     if component.value is not None:
@@ -300,11 +341,35 @@ def _opamp_model(component: Component, spec: ComponentSpec) -> tuple[str, bool]:
     return model, all(connected)
 
 
+def _logic_model(component: Component, spec: ComponentSpec) -> tuple[str, bool]:
+    model = component.model or spec.default_model
+    if model is None or model not in LOGIC_FAMILIES:
+        raise SpiceEmissionError(f"{component.id}: unknown logic family '{model}'")
+    assert spec.supply_pins is not None
+    connected = [pin in component.pins for pin in spec.supply_pins]
+    if any(connected) and not all(connected):
+        raise SpiceEmissionError(f"{component.id}: connect both supply pins or neither")
+    return model, all(connected)
+
+
+def _lamp_resistance(component: Component, spec: ComponentSpec) -> float:
+    """A lamp draws its rated power at its rated voltage: R = V^2 / P."""
+    rated = component.model or spec.default_model
+    if rated is None or not rated.endswith("V"):
+        raise SpiceEmissionError(f"{component.id}: unknown lamp rating '{rated}'")
+    if component.value is None or component.value <= 0:
+        raise SpiceEmissionError(f"{component.id}: lamp power must be a positive number")
+    return float(rated[:-1]) ** 2 / component.value
+
+
 @dataclass(slots=True)
 class _Emitted:
     lines: list[str] = field(default_factory=list[str])
     models: list[DeviceModel] = field(default_factory=list[DeviceModel])
     opamps: list[tuple[str, bool]] = field(default_factory=list[tuple[str, bool]])
+    logic: list[tuple[ComponentKind, str, bool]] = field(
+        default_factory=list[tuple[ComponentKind, str, bool]]
+    )
 
 
 def _emit_component(component: Component, names: _Names, out: _Emitted) -> None:
@@ -321,6 +386,12 @@ def _emit_component(component: Component, names: _Names, out: _Emitted) -> None:
         model, supplies = _opamp_model(component, spec)
         out.opamps.append((model, supplies))
         out.lines.append(f"{element} {nodes} {opamp_subckt_name(model, supplies)}")
+    elif component.kind in LOGIC_KINDS:
+        model, supplies = _logic_model(component, spec)
+        out.logic.append((component.kind, model, supplies))
+        out.lines.append(f"{element} {nodes} {logic_subckt_name(component.kind, model, supplies)}")
+    elif component.kind is ComponentKind.LAMP:
+        out.lines.append(f"{element} {nodes} {_num(_lamp_resistance(component, spec))}")
     else:
         device = _model_for(component, spec, element)
         out.models.append(device)
@@ -415,7 +486,7 @@ def _iter_lines(circuit: Circuit, names: _Names) -> Iterator[str]:
     for component in circuit.components:
         _emit_component(component, names, emitted)
     yield from emitted.lines
-    library = library_text(emitted.models, emitted.opamps)
+    library = library_text(emitted.models, emitted.opamps, emitted.logic)
     if library:
         yield library
 
@@ -423,8 +494,8 @@ def _iter_lines(circuit: Circuit, names: _Names) -> Iterator[str]:
 def to_spice(circuit: Circuit) -> SpiceDeck:
     """Translate a circuit into an ngspice deck. Raises :class:`SpiceEmissionError`."""
     _check_net_case(circuit)
-    probes = _current_probe_targets(circuit)
-    names = _assign_names(circuit, probes)
+    metered = _metered_components(circuit, _current_probe_targets(circuit))
+    names = _assign_names(circuit, metered)
     traces = _traces(circuit, names)
     analyses = _plan_all(circuit, names)
     node_voltages, currents, node_names = _maps(circuit, names)

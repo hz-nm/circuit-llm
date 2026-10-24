@@ -13,6 +13,7 @@ from .contracts import (
     EndpointTestResult,
     ModelEndpoint,
     OutputMode,
+    Planned,
     ProviderKind,
     ValidationFailed,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "ModelEndpoint",
     "OutputMode",
     "ParseResult",
+    "Planned",
     "Provider",
     "ProviderError",
     "ProviderFactory",

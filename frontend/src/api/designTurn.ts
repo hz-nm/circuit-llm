@@ -3,6 +3,7 @@ import { readSse } from "./sse";
 import type { StreamEvent, StreamEventType } from "./types";
 
 const EVENT_TYPES: ReadonlySet<string> = new Set<StreamEventType>([
+  "planned",
   "attempt_started",
   "validation_failed",
   "endpoint_failed",

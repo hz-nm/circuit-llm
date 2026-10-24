@@ -14,6 +14,7 @@ from circuits_llm.llm.contracts import (
     EndpointFailed,
     ModelEndpoint,
     OutputMode,
+    Planned,
     ProviderKind,
     ValidationFailed,
 )
@@ -182,6 +183,12 @@ class TurnSaved(_Schema):
 
 
 StreamEvent = Annotated[
-    AttemptStarted | ValidationFailed | EndpointFailed | DesignCompleted | DesignFailed | TurnSaved,
+    Planned
+    | AttemptStarted
+    | ValidationFailed
+    | EndpointFailed
+    | DesignCompleted
+    | DesignFailed
+    | TurnSaved,
     Field(discriminator="type"),
 ]
