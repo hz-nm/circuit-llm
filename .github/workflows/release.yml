@@ -31,7 +31,7 @@ jobs:
           mkdir -p vendor/ngspice
           curl -fL -o vendor/ngspice/ngspice.7z \
             "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/${NGSPICE_VERSION}/ngspice-${NGSPICE_VERSION}_64.7z/download"
-          tar -xf vendor/ngspice/ngspice.7z -C vendor/ngspice
+          7z x -y -ovendor/ngspice vendor/ngspice/ngspice.7z  # Git Bash's GNU tar can't read .7z
 
       - name: Install backend
         shell: bash
