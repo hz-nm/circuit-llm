@@ -11,13 +11,9 @@ import type { ReactNode } from "react";
 import { formatSI } from "../../lib/si";
 import type { Component, ComponentKind } from "../../api/types";
 
-/**
- * Kinds the backend catalog is adding this round. Until the regenerated
- * ComponentKind enum includes them, the registry is keyed by this superset so
- * the symbols are ready; once it does, this union simply collapses into it.
- */
-export type UpcomingKind = "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "lamp";
-export type SymbolKind = ComponentKind | UpcomingKind;
+
+/** Kinds with a symbol (every catalog kind; the compiler checks the registry is complete). */
+export type SymbolKind = ComponentKind;
 
 export type Side = "NORTH" | "EAST" | "SOUTH" | "WEST";
 
@@ -71,6 +67,7 @@ const LED_COLORS: Record<string, string> = {
   yellow: "#eab308",
   blue: "#3b82f6",
   white: "#f8fafc",
+  infrared: "#7c3aed",
 };
 
 /** Diode body shared by diode/LED/zener: anode on the left, cathode bar at x=38. */
@@ -134,6 +131,43 @@ function Plus({ x, y, s = 3.5 }: { x: number; y: number; s?: number }) {
 }
 function Minus({ x, y, s = 3.5 }: { x: number; y: number; s?: number }) {
   return <path d={`M${x - s} ${y}H${x + s}`} strokeWidth={1.5} />;
+}
+
+// ---------------------------------------------------------------------------- sensors
+
+/** Small text drawn as part of a symbol (no stroke, so it reads at any zoom). */
+function SymbolText({ x, y, text, size = 8 }: { x: number; y: number; text: string; size?: number }) {
+  return (
+    <text x={x} y={y} fontSize={size} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="currentColor" stroke="none" fontFamily="ui-sans-serif, system-ui, sans-serif">
+      {text}
+    </text>
+  );
+}
+
+/** Two arrows pointing at (x, y) from the upper left: light falling on a sensor. */
+function IncomingLight({ x, y }: { x: number; y: number }) {
+  return (
+    <g strokeWidth={1.25}>
+      <Arrow x1={x - 12} y1={y - 12} x2={x - 3} y2={y - 3} />
+      <Arrow x1={x - 4} y1={y - 14} x2={x + 5} y2={y - 5} />
+    </g>
+  );
+}
+
+const ZIGZAG = (y: number) => `M15 ${y}L17.5 ${y - 6}L22.5 ${y + 6}L27.5 ${y - 6}L32.5 ${y + 6}L37.5 ${y - 6}L42.5 ${y + 6}L45 ${y}`;
+
+/** Two-pin sensor in a 60 x 20 box (pins 1 west, 2 east), like a resistor. */
+function sensor(extra: Partial<SymbolDef> & Pick<SymbolDef, "draw">): SymbolDef {
+  return {
+    width: 60,
+    height: 20,
+    pins: twoTerminalPins(["1", "2"], 60, 10),
+    orientation: "two-terminal",
+    labelSide: "top",
+    valueUnit: null,
+    defaultModel: null,
+    ...extra,
+  };
 }
 
 // ---------------------------------------------------------------------------- registry
@@ -305,6 +339,7 @@ export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
           <Arrow x1={30} y1={4} x2={37} y2={-3} />
           <Arrow x1={36} y1={7} x2={43} y2={0} />
         </g>
+        {c.model?.toLowerCase() === "infrared" && <SymbolText x={11} y={26} text="IR" size={7} />}
       </>
     ),
   },
@@ -406,6 +441,132 @@ export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
   or_gate: gate("or", { inputs: 2 }),
   nor_gate: gate("or", { inputs: 2, inverted: true }),
   xor_gate: gate("xor", { inputs: 2 }),
+  // Light arrows and the NTC mark sit inside the box (above the body) so labels never overlap them.
+  ldr: sensor({
+    height: 34,
+    pins: twoTerminalPins(["1", "2"], 60, 24),
+    defaultModel: "GL5528",
+    draw: () => (
+      <>
+        <Leads x1={15} x2={45} y={24} w={60} />
+        <path d={ZIGZAG(24)} strokeLinejoin="round" />
+        <IncomingLight x={27} y={16} />
+      </>
+    ),
+  }),
+  thermistor: sensor({
+    height: 34,
+    pins: twoTerminalPins(["1", "2"], 60, 22),
+    valueUnit: "Ω",
+    defaultModel: "B3950",
+    draw: () => (
+      <>
+        <Leads x1={15} x2={45} y={22} w={60} />
+        <path d={ZIGZAG(22)} strokeLinejoin="round" />
+        {/* NTC: diagonal with a foot, and "-t°" */}
+        <path d="M10 33H16L44 8" strokeWidth={1.25} />
+        <SymbolText x={53} y={6} text="-t°" size={7} />
+      </>
+    ),
+  }),
+  gas_sensor: sensor({
+    height: 30,
+    pins: twoTerminalPins(["1", "2"], 60, 15),
+    defaultModel: "MQ-2",
+    draw: () => (
+      <>
+        <Leads x1={17} x2={43} y={15} w={60} />
+        <rect x={17} y={3} width={26} height={24} rx={4} className="sym-body" />
+        <circle cx={30} cy={15} r={8} strokeWidth={1} strokeDasharray="2 2" />
+        <SymbolText x={30} y={15} text="MQ" size={7} />
+      </>
+    ),
+  }),
+  photodiode: {
+    width: 60,
+    height: 44,
+    pins: twoTerminalPins(["anode", "cathode"], 60, 29),
+    orientation: "two-terminal",
+    labelSide: "top",
+    valueUnit: null,
+    defaultModel: "BPW34",
+    draw: () => (
+      <>
+        <g transform="translate(0 14)">
+          <DiodeBody fill="none" bar="M38 5V25" />
+        </g>
+        <IncomingLight x={30} y={20} />
+      </>
+    ),
+  },
+  phototransistor: {
+    width: 60,
+    height: 60,
+    pins: [
+      { name: "collector", x: 40, y: 0, side: "NORTH" },
+      { name: "emitter", x: 40, y: 60, side: "SOUTH" },
+    ],
+    orientation: "fixed",
+    labelSide: "right",
+    valueUnit: null,
+    defaultModel: "TEPT5700",
+    draw: () => (
+      <>
+        <circle cx={32} cy={30} r={19} className="sym-body" />
+        <path d="M22 17V43" />
+        <path d="M22 24L40 12V0M22 36L40 48V60" />
+        <Arrow x1={24} y1={36} x2={37} y2={45.5} />
+        <IncomingLight x={18} y={24} />
+      </>
+    ),
+  },
+  pir: {
+    width: 70,
+    height: 60,
+    pins: [
+      { name: "vcc", x: 35, y: 0, side: "NORTH" },
+      { name: "out", x: 70, y: 30, side: "EAST" },
+      { name: "gnd", x: 35, y: 60, side: "SOUTH" },
+    ],
+    orientation: "fixed",
+    labelSide: "right-top",
+    valueUnit: null,
+    defaultModel: "HC-SR501",
+    draw: () => (
+      <>
+        <path d="M35 0V12M35 48V60M58 30H70" />
+        <rect x={18} y={12} width={40} height={36} rx={3} className="sym-body" />
+        {/* Fresnel dome on the sensing face */}
+        <path d="M18 20A10 10 0 0 0 18 40" className="sym-body" />
+        <path d="M14 26H18M13 30H18M14 34H18" strokeWidth={0.75} />
+        <SymbolText x={38} y={24} text="PIR" size={8} />
+        <SymbolText x={46} y={30} text="out" size={6} />
+        <SymbolText x={35} y={17} text="+" size={7} />
+        <SymbolText x={35} y={43} text="−" size={7} />
+      </>
+    ),
+  },
+  potentiometer: {
+    width: 60,
+    height: 30,
+    pins: [
+      { name: "1", x: 0, y: 20, side: "WEST" },
+      { name: "w", x: 30, y: 0, side: "NORTH" },
+      { name: "2", x: 60, y: 20, side: "EAST" },
+    ],
+    orientation: "fixed",
+    labelSide: "top",
+    valueUnit: "Ω",
+    defaultModel: null,
+    draw: () => (
+      <>
+        <Leads x1={15} x2={45} y={20} w={60} />
+        <path d={ZIGZAG(20)} strokeLinejoin="round" />
+        {/* Wiper: lead from w ending in an arrow on the track */}
+        <Arrow x1={30} y1={0} x2={30} y2={12} />
+      </>
+    ),
+  },
   lamp: {
     width: 60,
     height: 30,

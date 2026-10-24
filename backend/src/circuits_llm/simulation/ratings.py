@@ -62,7 +62,10 @@ _TO92_PNP = {
 }
 
 RATINGS: Final[dict[ComponentKind, dict[str, Rating]]] = {
-    ComponentKind.LED: {colour: _LED for colour in ("red", "green", "yellow", "blue", "white")},
+    ComponentKind.LED: {
+        **{colour: _LED for colour in ("red", "green", "yellow", "blue", "white")},
+        "infrared": Rating(current=0.100, peak_current=1.0, voltage=5.0),  # e.g. TSAL6200
+    },
     ComponentKind.DIODE: {
         "1N4148": Rating(current=0.300, peak_current=2.0, voltage=100, power=0.5),
         "1N4007": Rating(current=1.0, peak_current=30, voltage=1000),
@@ -93,6 +96,7 @@ RATINGS: Final[dict[ComponentKind, dict[str, Rating]]] = {
 }
 _LOGIC_SUPPLY: Final = {"74HC": (2.0, 6.0), "CD4000": (3.0, 18.0)}
 ZENER_WATTS: Final = 0.5
+PIR_SUPPLY: Final = (4.5, 20.0)  # HC-SR501
 
 _TRANSISTORS: Final = frozenset(
     {ComponentKind.NPN, ComponentKind.PNP, ComponentKind.NMOS, ComponentKind.PMOS}
@@ -228,6 +232,8 @@ def _check_component(component: Component, s: _Signals) -> Iterator[tuple[float,
         yield from _transistor_checks(component, name, rating, s)
     elif kind is ComponentKind.OPAMP and rating is not None and rating.supply and "v+" in pins:
         yield from _supply_checks(name, rating.supply, s.v(pins["v+"]), s.v(pins["v-"]), s)
+    elif kind is ComponentKind.PIR:
+        yield from _supply_checks(name, PIR_SUPPLY, s.v(pins["vcc"]), s.v(pins["gnd"]), s)
     elif model in _LOGIC_SUPPLY and "vdd" in pins and "vss" in pins:
         vdd, vss = s.v(pins["vdd"]), s.v(pins["vss"])
         yield from _supply_checks(name, _LOGIC_SUPPLY[model], vdd, vss, s, model)

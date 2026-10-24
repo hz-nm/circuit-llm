@@ -352,6 +352,8 @@ export interface components {
             waveform?: (components["schemas"]["SineWave"] | components["schemas"]["PulseWave"] | components["schemas"]["PwlWave"]) | null;
             /** Ac Magnitude */
             ac_magnitude?: number | null;
+            /** Stimulus */
+            stimulus?: number | (components["schemas"]["SineWave"] | components["schemas"]["PulseWave"] | components["schemas"]["PwlWave"]) | null;
             /** Label */
             label?: string | null;
         };
@@ -359,7 +361,7 @@ export interface components {
          * ComponentKind
          * @enum {string}
          */
-        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter";
+        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "ldr" | "thermistor" | "photodiode" | "phototransistor" | "gas_sensor" | "pir" | "potentiometer";
         /** ComponentSpecOut */
         ComponentSpecOut: {
             kind: components["schemas"]["ComponentKind"];
@@ -793,6 +795,8 @@ export interface components {
             component?: string | null;
             /** Pin */
             pin?: string | null;
+            /** Stimulus Of */
+            stimulus_of?: string | null;
             /**
              * Probed
              * @default true

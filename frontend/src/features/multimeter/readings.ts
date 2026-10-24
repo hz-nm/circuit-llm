@@ -3,13 +3,16 @@
  * component currents at the cursor. Pure, so the card is easy to reason about.
  */
 import type { Component } from "../../api/types";
+import { STIMULUS, type StimulusSpec } from "../schematic/stimulus";
 import { SYMBOLS } from "../schematic/symbols";
 
 export interface Reading {
   label: string;
   /** null when the value isn't available (e.g. current not recorded). */
   value: number | null;
-  unit: "V" | "A" | "W";
+  unit: "V" | "A" | "W" | "Ω" | "env";
+  /** For unit "env": what the sensor senses (formatted with its own fixed-width rules). */
+  env?: StimulusSpec;
   /** Short explanation shown as a tooltip. */
   hint?: string;
   /** Visually separate summary rows (V across, I, P) from pin voltages. */
@@ -18,6 +21,10 @@ export interface Reading {
 
 export type VoltageOf = (net: string) => number | undefined;
 export type CurrentOf = (componentId: string) => number | undefined;
+export type StimulusOf = (componentId: string) => number | undefined;
+
+/** Parts whose resistance is the interesting quantity (R = V across / I through). */
+const RESISTIVE_SENSORS = new Set(["ldr", "thermistor", "gas_sensor"]);
 
 const GROUND = "GND";
 
@@ -42,8 +49,14 @@ export function twoPinNames(component: Component): [string, string] {
   return [a!.name, b!.name];
 }
 
-export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf): Reading[] {
+export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf, stim?: StimulusOf): Reading[] {
   const symbol = SYMBOLS[component.kind];
+  // Environment the sensor sees: the recorded stimulus at the cursor, else a constant stimulus.
+  const spec = STIMULUS[component.kind];
+  const constant = typeof component.stimulus === "number" ? component.stimulus : null;
+  const envRow: Reading[] = spec
+    ? [{ label: spec.quantity, value: stim?.(component.id) ?? constant, unit: "env", env: spec, hint: `Simulated ${spec.quantity}${spec.unit ? ` (${spec.unit})` : ""}`, emphasis: true }]
+    : [];
   const pins = symbol.pins.filter((p) => component.pins[p.name] !== undefined);
   const pinRows: Reading[] = pins.map((p) => ({
     label: `V(${p.name})`,
@@ -59,7 +72,12 @@ export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf):
     const current = i(component.id) ?? null;
     const power = across !== null && current !== null ? across * current : null;
     const source = component.kind === "voltage_source" || component.kind === "current_source";
+    const resistance = RESISTIVE_SENSORS.has(component.kind) && across !== null && current !== null && Math.abs(current) > 1e-15 ? across / current : null;
     return [
+      ...envRow,
+      ...(RESISTIVE_SENSORS.has(component.kind)
+        ? [{ label: "R", value: resistance, unit: "Ω" as const, hint: "Effective resistance = V across / I through", emphasis: true }]
+        : []),
       ...pinRows,
       { label: "V across", value: across, unit: "V", hint: `V(${p1}) − V(${p2})`, emphasis: true },
       {
@@ -109,7 +127,11 @@ export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf):
         { label: "V_in+ − V_in−", value: diff(at("in+"), at("in-")), unit: "V", hint: "Differential input voltage", emphasis: true },
         ...pinRows,
       ];
+    case "potentiometer":
+      return [...envRow, { label: "V(w)", value: at("w"), unit: "V", hint: "Wiper voltage", emphasis: true }, ...pinRows.filter((r) => r.label !== "V(w)")];
+    case "pir":
+      return [...envRow, { label: "V(out)", value: at("out"), unit: "V", hint: "Output (3.3 V while motion is detected)", emphasis: true }, ...pinRows.filter((r) => r.label !== "V(out)")];
     default:
-      return pinRows; // logic gates and anything else: pin voltages
+      return [...envRow, ...pinRows]; // logic gates and anything else: pin voltages
   }
 }

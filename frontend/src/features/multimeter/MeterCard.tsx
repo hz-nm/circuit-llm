@@ -1,6 +1,7 @@
 import type { Component, Issue } from "../../api/types";
 import { formatReadout } from "../../lib/si";
 import { componentSummary } from "../schematic/componentText";
+import { formatStimulus } from "../schematic/stimulus";
 import { SYMBOLS } from "../schematic/symbols";
 import { netKey } from "../simulation/live";
 import { isTwoPin, meterReadings } from "./readings";
@@ -9,6 +10,8 @@ interface Props {
   component: Component;
   voltages: ReadonlyMap<string, number> | null;
   currents: ReadonlyMap<string, number> | null;
+  /** Sensor environment by upper-cased component id, at the cursor. */
+  stimuli?: ReadonlyMap<string, number> | null;
   pinned: boolean;
   onUnpin?: () => void;
   /** Present when the part can be plotted (two-pin parts with a result). */
@@ -23,11 +26,12 @@ interface Props {
  * monospace font and the card has a fixed width, so nothing moves while the
  * timeline plays.
  */
-export function MeterCard({ component, voltages, currents, pinned, onUnpin, plotted, onTogglePlot, issues = [] }: Props) {
+export function MeterCard({ component, voltages, currents, stimuli = null, pinned, onUnpin, plotted, onTogglePlot, issues = [] }: Props) {
   const rows = meterReadings(
     component,
     (net) => voltages?.get(netKey(net)),
     (id) => currents?.get(netKey(id)),
+    (id) => stimuli?.get(netKey(id)),
   );
   const summary = componentSummary(component);
   const noData = voltages === null;
@@ -65,7 +69,11 @@ export function MeterCard({ component, voltages, currents, pinned, onUnpin, plot
               <dt className="whitespace-nowrap" title={row.hint}>
                 {row.label}
               </dt>
-              <dd className="whitespace-pre text-right font-mono tabular-nums text-ink">{formatReadout(row.value ?? Number.NaN, row.unit)}</dd>
+              <dd className="whitespace-pre text-right font-mono tabular-nums text-ink">{row.unit === "env" && row.env
+                  ? row.value === null
+                    ? "–"
+                    : formatStimulus(row.value, row.env)
+                  : formatReadout(row.value ?? Number.NaN, row.unit === "env" ? "" : row.unit)}</dd>
             </div>
           ))}
         </dl>

@@ -222,3 +222,38 @@ def test_ramps_profiles_and_bad_pulse_timings_are_accepted() -> None:
     )
     assert isinstance(pulse, PulseWave) and pulse.width > 0
     assert pulse.period >= pulse.rise + pulse.width + pulse.fall
+
+
+def test_sensor_stimulus_synonyms_units_and_misplaced_profiles() -> None:
+    answer = {
+        "reply": "r",
+        "circuit": {
+            "title": "t",
+            "components": [
+                {"id": "V1", "kind": "battery", "value": "5V", "pins": ["VCC", "GND"]},
+                {"id": "LDR1", "kind": "photoresistor", "light": "500 lux", "pins": ["VCC", "S"]},
+                {
+                    "id": "TH1",
+                    "kind": "NTC",
+                    "value": "10k",
+                    # weak models put the environment profile under "waveform"
+                    "waveform": {"shape": "ramp", "start": "20°C", "stop": 80, "duration": 1},
+                    "pins": ["S", "GND"],
+                },
+                {
+                    "id": "RV1",
+                    "kind": "pot",
+                    "value": "10k",
+                    "position": "25%",
+                    "pins": ["VCC", "W", "GND"],
+                },
+            ],
+        },
+    }
+    result = parse_model_output(json.dumps(answer))
+    assert result.circuit is not None, result.problems
+    ldr, thermistor, pot = result.circuit.components[1:]
+    assert ldr.stimulus == 500
+    assert isinstance(thermistor.stimulus, PwlWave) and thermistor.waveform is None
+    assert thermistor.stimulus.points == [(0, 20), (1, 80)]
+    assert pot.stimulus == 0.25

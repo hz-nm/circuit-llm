@@ -5,7 +5,7 @@ import { formatReadout } from "../../lib/si";
 import { Button } from "../../ui/Button";
 import { useIsDark } from "../../ui/theme";
 import { MeterCard } from "../multimeter/MeterCard";
-import { currentsAt, netKey, voltagesAt } from "../simulation/live";
+import { currentsAt, netKey, stimuliAt, voltagesAt } from "../simulation/live";
 import type { SimulationSession } from "../simulation/session";
 import { seriesColor } from "../simulation/UPlotChart";
 import { layoutCircuit, type ElkLike } from "./layout";
@@ -54,6 +54,7 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
   const x = useSyncExternalStore(cursor?.subscribe ?? NO_SUBSCRIBE, cursor?.get ?? NULL_SNAPSHOT);
   const voltages = useMemo(() => (live ? voltagesAt(live, x) : null), [live, x]);
   const currents = useMemo(() => (live ? currentsAt(live, x) : null), [live, x]);
+  const stimuli = useMemo(() => (live ? stimuliAt(live, x) : null), [live, x]);
 
   const highlight = useMemo(
     () => new Set((issues ?? []).filter((i) => i.severity === "error" && i.component_id).map((i) => i.component_id!)),
@@ -152,6 +153,7 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
       component,
       voltages: live ? voltages : null,
       currents: live ? currents : null,
+      stimuli: live ? stimuli : null,
       plotted: session?.probes.components.has(netKey(id)) ?? false,
       onTogglePlot: session && live ? () => session.probes.togglePlot(id) : undefined,
       issues: session?.ratingIssues.get(id) ?? [],

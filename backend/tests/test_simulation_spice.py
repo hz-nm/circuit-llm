@@ -8,8 +8,10 @@ from circuits_llm.simulation.downsample import decimation_indices
 from circuits_llm.simulation.library import (
     LOGIC_FAMILIES,
     LOGIC_KINDS,
+    SENSOR_KINDS,
     logic_subckt,
     opamp_subckt,
+    sensor_subckt,
 )
 
 
@@ -23,6 +25,8 @@ def test_every_catalog_model_has_a_library_entry() -> None:
             elif kind in LOGIC_KINDS:
                 assert model in LOGIC_FAMILIES
                 assert logic_subckt(kind, model, with_supplies=True).startswith(".subckt")
+            elif kind in SENSOR_KINDS:
+                assert sensor_subckt(kind, model).startswith(".subckt"), f"{kind}: {model}"
             elif kind is ComponentKind.LAMP:
                 assert float(model.removesuffix("V")) > 0, model  # rated voltage
             else:

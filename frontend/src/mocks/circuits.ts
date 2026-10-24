@@ -1,9 +1,5 @@
 /** Realistic mock circuits and simulation results, used by tests, the dev gallery and the mock API. */
-import type { Circuit, ComponentKind, SimulationResult } from "../api/types";
-import type { UpcomingKind } from "../features/schematic/symbols";
-
-/** Kinds the backend enum doesn't list yet (see UpcomingKind); typed as ComponentKind for the mocks. */
-const upcoming = (kind: UpcomingKind) => kind as unknown as ComponentKind;
+import type { Circuit, SimulationResult } from "../api/types";
 
 export const ledCircuit: Circuit = {
   title: "LED with current-limiting resistor",
@@ -93,20 +89,45 @@ export const logicZoo: Circuit = {
     { id: "V1", kind: "voltage_source", pins: { "+": "VDD", "-": "GND" }, value: 5 },
     { id: "VA", kind: "voltage_source", pins: { "+": "A", "-": "GND" }, value: 5 },
     { id: "VB", kind: "voltage_source", pins: { "+": "B", "-": "GND" }, value: 0 },
-    { id: "U1", kind: upcoming("not_gate"), pins: { a: "A", y: "NA", vdd: "VDD", vss: "GND" } },
-    { id: "U2", kind: upcoming("and_gate"), pins: { a: "NA", b: "B", y: "AND1" } },
-    { id: "U3", kind: upcoming("or_gate"), pins: { a: "A", b: "B", y: "OR1" } },
-    { id: "U4", kind: upcoming("nand_gate"), pins: { a: "AND1", b: "OR1", y: "NAND1" } },
-    { id: "U5", kind: upcoming("nor_gate"), pins: { a: "A", b: "NAND1", y: "NOR1" } },
-    { id: "U6", kind: upcoming("xor_gate"), pins: { a: "NOR1", b: "B", y: "XOR1" } },
-    { id: "U7", kind: upcoming("schmitt_inverter"), pins: { a: "XOR1", y: "DRV" } },
-    { id: "X1", kind: upcoming("lamp"), pins: { "1": "DRV", "2": "GND" }, value: 50, model: "12V" },
+    { id: "U1", kind: "not_gate", pins: { a: "A", y: "NA", vdd: "VDD", vss: "GND" } },
+    { id: "U2", kind: "and_gate", pins: { a: "NA", b: "B", y: "AND1" } },
+    { id: "U3", kind: "or_gate", pins: { a: "A", b: "B", y: "OR1" } },
+    { id: "U4", kind: "nand_gate", pins: { a: "AND1", b: "OR1", y: "NAND1" } },
+    { id: "U5", kind: "nor_gate", pins: { a: "A", b: "NAND1", y: "NOR1" } },
+    { id: "U6", kind: "xor_gate", pins: { a: "NOR1", b: "B", y: "XOR1" } },
+    { id: "U7", kind: "schmitt_inverter", pins: { a: "XOR1", y: "DRV" } },
+    { id: "X1", kind: "lamp", pins: { "1": "DRV", "2": "GND" }, value: 50, model: "12V" },
   ],
   analyses: [{ type: "op" }],
   probes: [],
 };
 
-export const MOCK_CIRCUITS: readonly Circuit[] = [ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo, logicZoo];
+/** Every sensor kind (plus an IR LED), each seeing a simulated environment. */
+export const sensorZoo: Circuit = {
+  title: "Sensor zoo",
+  description: "",
+  components: [
+    { id: "V1", kind: "voltage_source", pins: { "+": "VCC", "-": "GND" }, value: 5 },
+    { id: "LDR1", kind: "ldr", model: "GL5528", stimulus: { shape: "pwl", points: [[0, 1000], [0.4, 0.5], [0.6, 0.5], [1, 1000]] }, pins: { "1": "VCC", "2": "LIGHT" } },
+    { id: "R1", kind: "resistor", value: 10000, pins: { "1": "LIGHT", "2": "GND" } },
+    { id: "TH1", kind: "thermistor", value: 10000, model: "B3950", stimulus: 43.2, pins: { "1": "VCC", "2": "TEMP" } },
+    { id: "R2", kind: "resistor", value: 10000, pins: { "1": "TEMP", "2": "GND" } },
+    { id: "GS1", kind: "gas_sensor", model: "MQ-135", stimulus: 400, pins: { "1": "VCC", "2": "GAS" } },
+    { id: "R3", kind: "resistor", value: 20000, pins: { "1": "GAS", "2": "GND" } },
+    { id: "PD1", kind: "photodiode", model: "BPW34", stimulus: 500, pins: { anode: "GND", cathode: "PD" } },
+    { id: "R4", kind: "resistor", value: 100000, pins: { "1": "VCC", "2": "PD" } },
+    { id: "Q1", kind: "phototransistor", model: "TEPT5700", stimulus: 200, pins: { collector: "PT", emitter: "GND" } },
+    { id: "R5", kind: "resistor", value: 4700, pins: { "1": "VCC", "2": "PT" } },
+    { id: "P1", kind: "pir", stimulus: { shape: "pulse", initial: 0, pulsed: 1, delay: 0.2, rise: 0.001, fall: 0.001, width: 0.3, period: 1 }, pins: { vcc: "VCC", out: "MOTION", gnd: "GND" } },
+    { id: "RV1", kind: "potentiometer", value: 10000, stimulus: 0.25, pins: { "1": "VCC", w: "KNOB", "2": "GND" } },
+    { id: "D1", kind: "led", model: "infrared", pins: { anode: "IRA", cathode: "GND" } },
+    { id: "R6", kind: "resistor", value: 220, pins: { "1": "VCC", "2": "IRA" } },
+  ],
+  analyses: [{ type: "tran", stop_time: 1, start_time: 0 }],
+  probes: [],
+};
+
+export const MOCK_CIRCUITS: readonly Circuit[] = [ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo, logicZoo, sensorZoo];
 
 // ---------------------------------------------------------------------------- simulation results
 

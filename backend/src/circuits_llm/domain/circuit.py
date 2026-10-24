@@ -109,6 +109,9 @@ class Component(StrictModel):
     model: Annotated[str, Field(max_length=32)] | None = None
     waveform: Waveform | None = None
     ac_magnitude: FiniteFloat | None = None
+    # Sensors only: the environment they sense (light, temperature, ...), as a constant
+    # or as a waveform over time. Units are given by the catalog's StimulusSpec.
+    stimulus: FiniteFloat | Waveform | None = None
     label: Annotated[str, Field(max_length=120)] | None = None
 
 

@@ -78,7 +78,7 @@ async def main() -> None:
             if isinstance(event, DesignCompleted):
                 print(f"\nCOMPLETED in {time.monotonic() - started:.1f}s\n{event.reply}\n")
                 if event.circuit is not None:
-                    print(event.circuit.model_dump_json(indent=1, exclude_defaults=True))
+                    print(event.circuit.model_dump_json(indent=1, exclude_none=True))
                 for warning in event.warnings:
                     print("warning:", warning.message)
             else:

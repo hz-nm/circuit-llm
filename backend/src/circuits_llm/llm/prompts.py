@@ -49,7 +49,10 @@ A pulse waveform is {"shape": "pulse", "initial": 0, "pulsed": 5, "width": "0.5m
 A piecewise-linear waveform is {"shape": "pwl", "points": [[0, 18], [0.4, 0], [1, 18]]}: \
 [time, value] pairs with increasing times. Use it for ramps and slow changes such as day to \
 night.
-A current probe target is a two-pin component id; a voltage probe target is a net name."""
+A current probe target is a two-pin component id; a voltage probe target is a net name.
+Sensors take "stimulus": the environment they sense (light in lux, temperature in °C, gas in
+ppm, motion 0/1, knob position 0..1), as a constant such as 500 or as a waveform over time
+such as {"shape": "pwl", "points": [[0, 1000], [1, 0.5]]} for daylight fading to night."""
 
 _RULES: Final = f"""\
 1. Answer with ONE JSON object in exactly the format below and nothing else: no prose outside \
@@ -192,6 +195,61 @@ _EXAMPLE_LAMP: Final[dict[str, Any]] = {
     },
 }
 
+_EXAMPLE_LDR_REQUEST: Final = "Switch a 12 V, 50 W lamp on at dusk using a light sensor."
+_EXAMPLE_LDR: Final[dict[str, Any]] = {
+    "reply": (
+        "An LDR (top) and a 10k resistor (bottom) form a light-dependent divider: bright "
+        "light makes the LDR small, so SENSE is high. A CD4000-series Schmitt inverter runs "
+        "from the 12 V battery. At dusk (about 10 lux) the LDR rises above 15k, SENSE falls "
+        "below 4.7 V, the inverter output goes high and the IRFZ44N switches the 50 W lamp "
+        "on. It only switches off again above about 30 lux, so the lamp never flickers. The "
+        "light stimulus goes from daylight to night and back."
+    ),
+    "circuit": {
+        "title": "Dusk-to-dawn lamp with LDR",
+        "description": "LDR divider, Schmitt inverter, MOSFET lamp switch.",
+        "components": [
+            {
+                "id": "VBAT",
+                "kind": "voltage_source",
+                "value": 12,
+                "pins": {"+": "VBAT", "-": "GND"},
+            },
+            {
+                "id": "LDR1",
+                "kind": "ldr",
+                "stimulus": {
+                    "shape": "pwl",
+                    "points": [[0, 1000], [0.4, 0.5], [0.6, 0.5], [1, 1000]],
+                },
+                "pins": {"1": "VBAT", "2": "SENSE"},
+            },
+            {"id": "R1", "kind": "resistor", "value": "10k", "pins": {"1": "SENSE", "2": "GND"}},
+            {
+                "id": "U1",
+                "kind": "schmitt_inverter",
+                "model": "CD4000",
+                "pins": {"a": "SENSE", "y": "GATE", "vdd": "VBAT", "vss": "GND"},
+            },
+            {
+                "id": "M1",
+                "kind": "nmos",
+                "model": "IRFZ44N",
+                "pins": {"drain": "DRAIN", "gate": "GATE", "source": "GND"},
+            },
+            {
+                "id": "LA1",
+                "kind": "lamp",
+                "value": 50,
+                "model": "12V",
+                "pins": {"1": "VBAT", "2": "DRAIN"},
+            },
+        ],
+        "analyses": [{"type": "tran", "stop_time": 1, "step_time": "1m"}],
+        "probes": [{"kind": "voltage", "target": "SENSE"}, {"kind": "current", "target": "LA1"}],
+    },
+}
+
 # (request, answer, families the example needs). An example is shown only when every
 # family it uses is described in the prompt.
 FEW_SHOT_EXAMPLES: Final[tuple[tuple[str, dict[str, Any], frozenset[Family]], ...]] = (
@@ -201,6 +259,11 @@ FEW_SHOT_EXAMPLES: Final[tuple[tuple[str, dict[str, Any], frozenset[Family]], ..
         _EXAMPLE_LAMP_REQUEST,
         _EXAMPLE_LAMP,
         frozenset({Family.CORE, Family.LOGIC, Family.TRANSISTORS}),
+    ),
+    (
+        _EXAMPLE_LDR_REQUEST,
+        _EXAMPLE_LDR,
+        frozenset({Family.CORE, Family.SENSORS, Family.LOGIC, Family.TRANSISTORS}),
     ),
 )
 

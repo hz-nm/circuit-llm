@@ -252,3 +252,55 @@ def test_missing_binary_does_not_raise(led_circuit: Circuit, tmp_path: Path) -> 
     result = asyncio.run(simulator.simulate(led_circuit))
     assert not result.ok
     assert result.error is not None and "Could not start ngspice" in result.error
+
+
+LDR_STREET_LAMP: dict[str, Any] = {
+    "title": "LDR street lamp",
+    "components": [
+        _vsrc("VBAT", "VBAT", "GND", value=12),
+        {
+            "id": "LDR1",
+            "kind": "ldr",
+            "pins": {"1": "VBAT", "2": "SENSE"},
+            # daylight -> night -> daylight
+            "stimulus": {"shape": "pwl", "points": [[0, 1000], [0.4, 0.5], [0.6, 0.5], [1, 1000]]},
+        },
+        _two_pin("resistor", "R1", "SENSE", "GND", 10e3),
+        {
+            "id": "U1",
+            "kind": "schmitt_inverter",
+            "model": "CD4000",
+            "pins": {"a": "SENSE", "y": "GATE", "vdd": "VBAT", "vss": "GND"},
+        },
+        {
+            "id": "M1",
+            "kind": "nmos",
+            "model": "IRFZ44N",
+            "pins": {"drain": "DRAIN", "gate": "GATE", "source": "GND"},
+        },
+        {
+            "id": "LA1",
+            "kind": "lamp",
+            "value": 50,
+            "model": "12V",
+            "pins": {"1": "VBAT", "2": "DRAIN"},
+        },
+    ],
+    "analyses": [{"type": "tran", "stop_time": 1.0, "step_time": 1e-3}],
+}
+
+
+@requires_ngspice
+def test_ldr_street_lamp_switches_at_dusk_with_hysteresis() -> None:
+    result = _simulate(LDR_STREET_LAMP)
+    assert result.ok, result.error
+    assert not [c.message for c in result.checks if c.severity == "error"]
+    tran = _sweep(result, 1)
+    light = next(t.values for t in tran.traces if t.stimulus_of == "LDR1")
+    lamp = next(t.values for t in tran.traces if t.component == "LA1")
+    on = [abs(i) > 2 for i in lamp]  # 50 W at 12 V is about 4.2 A
+    switches = [i for i in range(1, len(on)) if on[i] != on[i - 1]]
+    assert len(switches) == 2  # on once at dusk, off once at dawn: no flicker
+    turn_on_lux, turn_off_lux = light[switches[0]], light[switches[1]]
+    assert 5 < turn_on_lux < 15  # dusk: LDR above ~15k pulls SENSE below VT- (4.7 V)
+    assert 20 < turn_off_lux < 45  # dawn needs ~30 lux to pass VT+ (7.1 V): hysteresis

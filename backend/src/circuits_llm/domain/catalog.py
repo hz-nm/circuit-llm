@@ -34,6 +34,13 @@ class ComponentKind(StrEnum):
     NOR_GATE = "nor_gate"
     XOR_GATE = "xor_gate"
     SCHMITT_INVERTER = "schmitt_inverter"
+    LDR = "ldr"
+    THERMISTOR = "thermistor"
+    PHOTODIODE = "photodiode"
+    PHOTOTRANSISTOR = "phototransistor"
+    GAS_SENSOR = "gas_sensor"
+    PIR = "pir"
+    POTENTIOMETER = "potentiometer"
 
 
 class Category(StrEnum):
@@ -53,6 +60,7 @@ class Family(StrEnum):
     TRANSISTORS = "transistors"
     AMPLIFIERS = "amplifiers"
     LOGIC = "logic"
+    SENSORS = "sensors"
 
 
 FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
@@ -60,7 +68,24 @@ FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
     Family.TRANSISTORS: "BJTs and MOSFETs for switching loads or amplifying",
     Family.AMPLIFIERS: "op-amps for amplifiers, filters, comparators and references",
     Family.LOGIC: "logic gates (NOT/AND/OR/NAND/NOR/XOR) and Schmitt-trigger inverters",
+    Family.SENSORS: (
+        "sensors driven by a simulated environment: light (LDR, photodiode, "
+        "phototransistor), temperature (NTC thermistor), gas (MQ-2/MQ-135), motion (PIR "
+        "module) and potentiometers (knob position)"
+    ),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class StimulusSpec:
+    """The environment quantity a sensor responds to, given per component as ``stimulus``."""
+
+    quantity: str  # "light", "temperature", ...
+    unit: str  # "lux", "°C", ...
+    default: float  # used when a circuit gives no stimulus
+    minimum: float
+    maximum: float
+    hint: str  # e.g. "about 10000 lux in daylight, 1 lux at night"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +118,7 @@ class ComponentSpec:
     family: Family = Family.CORE
     # Optional (positive, negative) supply pins that must be connected together or not at all.
     supply_pins: tuple[str, str] | None = None
+    stimulus: StimulusSpec | None = None
 
     @property
     def default_model(self) -> str | None:
@@ -259,7 +285,7 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
         designator_prefix="D",
         description="Light-emitting diode; 'model' is its colour.",
         pins=_DIODE_PINS,
-        models=("red", "green", "yellow", "blue", "white"),
+        models=("red", "green", "yellow", "blue", "white", "infrared"),
         kind_aliases=("light_emitting_diode", "led_diode"),
         dc_paths=_DIODE_PATHS,
     ),
@@ -429,6 +455,187 @@ def _gate(kind: ComponentKind, name: str, function: str, aliases: tuple[str, ...
     )
 
 
+_LIGHT = StimulusSpec(
+    "light",
+    "lux",
+    default=500,
+    minimum=0,
+    maximum=200_000,
+    hint="about 50000 in sunlight, 500 indoors, 10 at dusk, 0.1 at night",
+)
+_SENSORS_NOTE = (
+    "Give 'stimulus' as a constant or as a waveform over time (e.g. pwl from day to night)."
+)
+
+_SENSOR_SPECS: Final[tuple[ComponentSpec, ...]] = (
+    ComponentSpec(
+        kind=ComponentKind.LDR,
+        display_name="Light-dependent resistor",
+        category=Category.PASSIVE,
+        family=Family.SENSORS,
+        designator_prefix="LDR",
+        description=(
+            "Photoresistor: resistance falls as light rises (GL5528: about 1 M in the dark, "
+            "15 k at 10 lux, 3 k at 100 lux). Use it in a divider with a resistor. " + _SENSORS_NOTE
+        ),
+        pins=_TWO_TERMINAL,
+        models=("GL5528", "GL5539"),
+        kind_aliases=("photoresistor", "light_sensor", "light_dependent_resistor", "cds"),
+        dc_paths=(("1", "2"),),
+        stimulus=_LIGHT,
+    ),
+    ComponentSpec(
+        kind=ComponentKind.THERMISTOR,
+        display_name="NTC thermistor",
+        category=Category.PASSIVE,
+        family=Family.SENSORS,
+        designator_prefix="TH",
+        description=(
+            "NTC thermistor: resistance falls as temperature rises; 'value' is its resistance "
+            "at 25 °C and 'model' its B constant. " + _SENSORS_NOTE
+        ),
+        pins=_TWO_TERMINAL,
+        value_unit="Ω",
+        value_required=True,
+        value_description="resistance at 25 °C, e.g. '10k'",
+        models=("B3950", "B3435"),
+        kind_aliases=("ntc", "ntc_thermistor", "temperature_sensor", "temp_sensor"),
+        dc_paths=(("1", "2"),),
+        stimulus=StimulusSpec(
+            "temperature",
+            "°C",
+            default=25,
+            minimum=-55,
+            maximum=150,
+            hint="e.g. 25 room, 0 freezing, 100 boiling",
+        ),
+    ),
+    ComponentSpec(
+        kind=ComponentKind.PHOTODIODE,
+        display_name="Photodiode",
+        category=Category.SEMICONDUCTOR,
+        family=Family.SENSORS,
+        designator_prefix="D",
+        description=(
+            "Photodiode (BPW34): light makes a current of about 50 nA per lux flow from cathode "
+            "to anode. Reverse-bias it (cathode to the positive side) into a resistor or an "
+            "op-amp transimpedance stage. Also works as an IR receiver. " + _SENSORS_NOTE
+        ),
+        pins=_DIODE_PINS,
+        models=("BPW34",),
+        kind_aliases=("photo_diode", "ir_receiver", "ir_photodiode"),
+        dc_paths=_DIODE_PATHS,
+        stimulus=_LIGHT,
+    ),
+    ComponentSpec(
+        kind=ComponentKind.PHOTOTRANSISTOR,
+        display_name="Phototransistor",
+        category=Category.SEMICONDUCTOR,
+        family=Family.SENSORS,
+        designator_prefix="Q",
+        description=(
+            "NPN phototransistor (TEPT5700): collector current of about 0.4 uA per lux, so "
+            "40 uA at 100 lux. Use it with a load resistor from collector to the supply. "
+            + _SENSORS_NOTE
+        ),
+        pins=(
+            PinSpec("collector", "collector", aliases=("c",)),
+            PinSpec("emitter", "emitter", aliases=("e",)),
+        ),
+        models=("TEPT5700",),
+        kind_aliases=("photo_transistor", "ambient_light_sensor", "ir_phototransistor"),
+        dc_paths=(("collector", "emitter"),),
+        stimulus=_LIGHT,
+    ),
+    ComponentSpec(
+        kind=ComponentKind.GAS_SENSOR,
+        display_name="Gas sensor",
+        category=Category.PASSIVE,
+        family=Family.SENSORS,
+        designator_prefix="GS",
+        description=(
+            "MQ-series gas sensor element (the heater is not modelled): its resistance falls "
+            "as gas concentration rises. MQ-2 senses smoke/LPG, MQ-135 air quality (CO2). Put "
+            "it in a divider with a 10k load resistor from the supply. " + _SENSORS_NOTE
+        ),
+        pins=_TWO_TERMINAL,
+        models=("MQ-2", "MQ-135"),
+        kind_aliases=(
+            "mq2",
+            "mq_2",
+            "mq135",
+            "mq_135",
+            "smoke_sensor",
+            "gas",
+            "air_quality_sensor",
+        ),
+        dc_paths=(("1", "2"),),
+        stimulus=StimulusSpec(
+            "gas",
+            "ppm",
+            default=0,
+            minimum=0,
+            maximum=10_000,
+            hint="0 for clean air; e.g. 1000 ppm smoke/LPG (MQ-2), 400-2000 ppm CO2 (MQ-135)",
+        ),
+    ),
+    ComponentSpec(
+        kind=ComponentKind.PIR,
+        display_name="PIR motion sensor",
+        category=Category.INTEGRATED,
+        family=Family.SENSORS,
+        designator_prefix="U",
+        description=(
+            "PIR motion sensor module (HC-SR501): 'out' is 3.3 V while motion is detected and "
+            "0 V otherwise. Power 'vcc' from 4.5-20 V. The stimulus is motion: 1 = moving, "
+            "0 = still. " + _SENSORS_NOTE
+        ),
+        pins=(
+            PinSpec("vcc", "supply", aliases=("v+", "vin", "+")),
+            PinSpec("out", "digital output", aliases=("output", "signal", "o")),
+            PinSpec("gnd", "ground", aliases=("-", "v-")),
+        ),
+        models=("HC-SR501",),
+        kind_aliases=("pir_sensor", "motion_sensor", "hc_sr501", "pir_module"),
+        driven_pins=("out",),
+        dc_paths=(("vcc", "gnd"),),
+        stimulus=StimulusSpec(
+            "motion",
+            "",
+            default=0,
+            minimum=0,
+            maximum=1,
+            hint="1 while something moves, 0 otherwise (use a pulse for passers-by)",
+        ),
+    ),
+    ComponentSpec(
+        kind=ComponentKind.POTENTIOMETER,
+        display_name="Potentiometer",
+        category=Category.PASSIVE,
+        family=Family.SENSORS,
+        designator_prefix="RV",
+        description=(
+            "Potentiometer: 'value' is the total resistance between '1' and '2'; the wiper 'w' "
+            "sits at the knob position (0 = at '1', 1 = at '2'). Turn the knob over time with "
+            "a waveform stimulus."
+        ),
+        pins=(
+            PinSpec("1", "end 1", aliases=("a", "ccw", "left")),
+            PinSpec("w", "wiper", aliases=("wiper", "w1", "slider", "middle", "center", "3")),
+            PinSpec("2", "end 2", aliases=("b", "cw", "right")),
+        ),
+        value_unit="Ω",
+        value_required=True,
+        value_description="total resistance, e.g. '10k'",
+        kind_aliases=("pot", "trimmer", "trimpot", "variable_resistor", "rheostat"),
+        dc_paths=(("1", "w"), ("w", "2")),
+        stimulus=StimulusSpec(
+            "position", "", default=0.5, minimum=0, maximum=1, hint="0 to 1 (0.5 = middle)"
+        ),
+    ),
+)
+
+
 _LOGIC_SPECS: Final[tuple[ComponentSpec, ...]] = (
     _gate(
         ComponentKind.NOT_GATE,
@@ -452,7 +659,7 @@ _LOGIC_SPECS: Final[tuple[ComponentSpec, ...]] = (
 )
 
 CATALOG: Final[dict[ComponentKind, ComponentSpec]] = {
-    spec.kind: spec for spec in (*_SPECS, *_LOGIC_SPECS)
+    spec.kind: spec for spec in (*_SPECS, *_LOGIC_SPECS, *_SENSOR_SPECS)
 }
 
 _KIND_LOOKUP: Final[dict[str, ComponentKind]] = {

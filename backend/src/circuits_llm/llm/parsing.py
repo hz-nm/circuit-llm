@@ -356,6 +356,20 @@ _ANALYSIS_ALIASES: Final[dict[str, str]] = {
     ),
 }
 
+_STIMULUS_KEYS: Final = (
+    "light",
+    "lux",
+    "illuminance",
+    "light_level",
+    "temperature",
+    "temp",
+    "ppm",
+    "concentration",
+    "gas_ppm",
+    "position",
+    "knob",
+    "motion",
+)
 _PWL_SHAPES: Final = frozenset({"pwl", "piecewise", "piecewise_linear", "profile", "points"})
 _RAMP_SHAPES: Final = frozenset({"ramp", "linear_ramp", "slope"})
 _SINE_SHAPES: Final = frozenset({"sine", "sin", "sinusoidal", "sinusoid", "ac", "sinewave"})
@@ -518,10 +532,45 @@ class _CircuitBuilder:
         ac = _pick(data, "ac_magnitude", "ac_mag", "acmag", "ac_amplitude", "ac")
         if ac is not None and "ac_magnitude" not in result:
             result["ac_magnitude"] = 1.0 if ac is True else self.number(ac, f"{name} ac_magnitude")
+        if spec.stimulus is not None:
+            self._sensor_stimulus(data, spec, name, result)
         label = _pick(data, "label", "note", "comment", "description")
         if label is not None:
             result["label"] = _text(label, 120)
         return result
+
+    def _sensor_stimulus(self, data: Json, spec: ComponentSpec, name: str, out: Json) -> None:
+        """Read a sensor's environment: a constant, a waveform, or a profile under a synonym."""
+        assert spec.stimulus is not None
+        raw = _pick(data, "stimulus", "environment", *_STIMULUS_KEYS)
+        if raw is None:
+            if "waveform" in out:  # weak models put the light/temperature profile here
+                out["stimulus"] = out.pop("waveform")
+            return
+        where = f"{name} stimulus"
+        constant = _as_dict(raw)
+        if constant is not None and _pick(constant, "shape", "type", "points") is None:
+            raw = _pick(constant, "value", "level", spec.stimulus.quantity, *_STIMULUS_KEYS)
+        if isinstance(raw, list):
+            self.problem(f'{where}: give a number or a waveform such as {{"shape": "pwl", ...}}.')
+            return
+        if isinstance(raw, dict):
+            parsed = self._waveform(cast(Json, raw), where)
+            if parsed is not None:
+                out["stimulus"] = parsed
+            return
+        if isinstance(raw, str) and _SPICE_WAVE_RE.search(raw):
+            out["stimulus"] = self._waveform(raw, where)
+            return
+        percent = isinstance(raw, str) and raw.strip().endswith("%")
+        if percent:
+            raw = cast(str, raw).strip().removesuffix("%")
+        value = None if raw is None else self.number(raw, where)
+        if value is None:
+            return
+        if spec.stimulus.quantity == "position" and (percent or 1 < value <= 100):
+            value /= 100  # "50" or "50%" for a knob position means half-way
+        out["stimulus"] = value
 
     def _component_value(self, data: Json, spec: ComponentSpec, name: str, out: Json) -> None:
         raw = _pick(data, "value", *_SOURCE_VALUE_KEYS.get(spec.kind, ()))

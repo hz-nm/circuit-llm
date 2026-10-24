@@ -12,7 +12,19 @@ from enum import StrEnum
 from typing import Final
 
 from .catalog import CATALOG, ComponentKind, ComponentSpec
-from .circuit import GROUND_NET, AcSweep, Circuit, Component, DcSweep, StrictModel, Transient
+from .circuit import (
+    GROUND_NET,
+    AcSweep,
+    Circuit,
+    Component,
+    DcSweep,
+    PulseWave,
+    PwlWave,
+    SineWave,
+    StrictModel,
+    Transient,
+    Waveform,
+)
 
 MAX_TRANSIENT_POINTS: Final = 200_000
 MAX_DC_POINTS: Final = 10_000
@@ -155,9 +167,11 @@ def _check_component(c: Component, spec: ComponentSpec) -> Iterator[Issue]:
         yield _error(
             "waveform_on_non_source",
             f"{name}: only voltage_source and current_source may have 'waveform' "
-            "or 'ac_magnitude'.",
+            "or 'ac_magnitude'. Sensors take a 'stimulus' instead.",
             component=c.id,
         )
+
+    yield from _check_stimulus(c, spec, name)
 
     connected = [net for pin, net in c.pins.items() if pin in spec.pin_names]
     if len(connected) >= 2 and len(set(connected)) == 1:
@@ -178,6 +192,44 @@ def _check_component(c: Component, spec: ComponentSpec) -> Iterator[Issue]:
                 f"'{negative}' on a single supply), or neither for an ideal part.",
                 component=c.id,
             )
+
+
+def stimulus_extremes(stimulus: float | Waveform) -> tuple[float, float]:
+    """The lowest and highest value a stimulus reaches."""
+    match stimulus:
+        case SineWave():
+            return stimulus.offset - abs(stimulus.amplitude), stimulus.offset + abs(
+                stimulus.amplitude
+            )
+        case PulseWave():
+            return min(stimulus.initial, stimulus.pulsed), max(stimulus.initial, stimulus.pulsed)
+        case PwlWave():
+            values = [v for _, v in stimulus.points]
+            return min(values), max(values)
+        case _:
+            return stimulus, stimulus
+
+
+def _check_stimulus(c: Component, spec: ComponentSpec, name: str) -> Iterator[Issue]:
+    if c.stimulus is None:
+        return
+    if spec.stimulus is None:
+        yield _error(
+            "stimulus_on_non_sensor",
+            f"{name}: only sensors take a 'stimulus'; remove it.",
+            component=c.id,
+        )
+        return
+    low, high = stimulus_extremes(c.stimulus)
+    allowed = spec.stimulus
+    if low < allowed.minimum or high > allowed.maximum:
+        unit = f" {allowed.unit}" if allowed.unit else ""
+        yield _error(
+            "stimulus_out_of_range",
+            f"{name}: the {allowed.quantity} stimulus must stay between {allowed.minimum:g} "
+            f"and {allowed.maximum:g}{unit} ({allowed.hint}); it reaches {low:g}..{high:g}.",
+            component=c.id,
+        )
 
 
 # --------------------------------------------------------------------------- nets

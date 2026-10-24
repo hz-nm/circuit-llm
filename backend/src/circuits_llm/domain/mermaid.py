@@ -63,6 +63,12 @@ def component_summary(component: Component) -> str:
             parts.append(f"pwl {values}" + (" …" if len(w.points) > 4 else ""))
     if component.ac_magnitude:
         parts.append(f"AC {component.ac_magnitude:g}")
+    if spec.stimulus is not None and component.stimulus is not None:
+        stim, unit = component.stimulus, spec.stimulus.unit
+        if isinstance(stim, float | int):
+            parts.append(f"{spec.stimulus.quantity} {stim:g} {unit}".strip())
+        else:
+            parts.append(f"{spec.stimulus.quantity} {stim.shape}")
     model = component.model or spec.default_model
     if model is not None:
         parts.append(model)

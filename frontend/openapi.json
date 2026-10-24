@@ -1104,6 +1104,38 @@
             ],
             "title": "Ac Magnitude"
           },
+          "stimulus": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SineWave"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PulseWave"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PwlWave"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "shape",
+                  "mapping": {
+                    "pulse": "#/components/schemas/PulseWave",
+                    "pwl": "#/components/schemas/PwlWave",
+                    "sine": "#/components/schemas/SineWave"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stimulus"
+          },
           "label": {
             "anyOf": [
               {
@@ -1149,7 +1181,14 @@
           "nand_gate",
           "nor_gate",
           "xor_gate",
-          "schmitt_inverter"
+          "schmitt_inverter",
+          "ldr",
+          "thermistor",
+          "photodiode",
+          "phototransistor",
+          "gas_sensor",
+          "pir",
+          "potentiometer"
         ],
         "title": "ComponentKind"
       },
@@ -2254,6 +2293,17 @@
               }
             ],
             "title": "Pin"
+          },
+          "stimulus_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stimulus Of"
           },
           "probed": {
             "type": "boolean",

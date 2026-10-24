@@ -72,6 +72,8 @@ DISCRETE_MODELS: Final[dict[ComponentKind, dict[str, DeviceModel]]] = {
         "yellow": _led("yellow", 1.49e-18, 2.0, 4.0),
         "blue": _led("blue", 3.51e-22, 2.5, 8.0),
         "white": _led("white", 1.62e-22, 2.5, 8.0),
+        # 940 nm IR emitter: Vf ~1.2 V at 20 mA
+        "infrared": _led("infrared", 6.9e-14, 1.7, 2.0),
     },
     ComponentKind.NPN: {
         "2N3904": _bjt(
@@ -347,6 +349,144 @@ def logic_subckt(kind: ComponentKind, model: str, with_supplies: bool) -> str:
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------- sensors
+#
+# Each sensor is a subcircuit whose last port, ``stim``, carries the environment value
+# (lux, degrees C, ppm, motion 0/1, knob position 0..1) as a voltage driven by a hidden
+# source. Resistive sensors are behavioural current sources I = V / R(stimulus).
+
+_MIN_SENSOR_OHMS: Final = 1e-2  # keeps behavioural resistances finite
+
+
+@dataclass(frozen=True, slots=True)
+class LdrSpec:
+    ohms_at_10_lux: float
+    gamma: float  # slope of log(R) against log(lux)
+    dark_ohms: float
+
+
+LDR_MODELS: Final[dict[str, LdrSpec]] = {
+    "GL5528": LdrSpec(ohms_at_10_lux=15e3, gamma=0.7, dark_ohms=1e6),
+    "GL5539": LdrSpec(ohms_at_10_lux=70e3, gamma=0.8, dark_ohms=5e6),
+}
+NTC_B_CONSTANTS: Final[dict[str, float]] = {"B3950": 3950.0, "B3435": 3435.0}
+
+
+@dataclass(frozen=True, slots=True)
+class GasSensorSpec:
+    """Rs/R0 = (ppm / scale_ppm) ** -exponent, capped at the clean-air ratio."""
+
+    r0_ohms: float
+    scale_ppm: float
+    exponent: float
+    clean_air_ratio: float
+
+
+GAS_SENSOR_MODELS: Final[dict[str, GasSensorSpec]] = {
+    "MQ-2": GasSensorSpec(r0_ohms=10e3, scale_ppm=574.25, exponent=0.45, clean_air_ratio=9.8),
+    "MQ-135": GasSensorSpec(r0_ohms=10e3, scale_ppm=116.6, exponent=0.361, clean_air_ratio=3.6),
+}
+PHOTODIODE_AMPS_PER_LUX: Final = {"BPW34": 50e-9}
+PHOTOTRANSISTOR_AMPS_PER_LUX: Final = {"TEPT5700": 0.4e-6}
+_PHOTOTRANSISTOR_BETA: Final = 400.0
+PIR_OUTPUT_V: Final = 3.3
+PIR_MIN_SUPPLY_V: Final = 4.5
+
+SENSOR_KINDS: Final = frozenset(
+    {
+        ComponentKind.LDR,
+        ComponentKind.THERMISTOR,
+        ComponentKind.PHOTODIODE,
+        ComponentKind.PHOTOTRANSISTOR,
+        ComponentKind.GAS_SENSOR,
+        ComponentKind.PIR,
+        ComponentKind.POTENTIOMETER,
+    }
+)
+
+
+def sensor_subckt_name(kind: ComponentKind, model: str | None) -> str:
+    suffix = "" if model is None else "_" + model.upper().replace("-", "")
+    return f"SNS_{kind.value.upper()}{suffix}"
+
+
+def _clamped(expression: str, low: float, high: float) -> str:
+    return f"min(max({expression},{low:g}),{high:g})"
+
+
+def sensor_subckt(kind: ComponentKind, model: str | None) -> str:
+    """Subcircuit text; ports are the catalog pins in order, then ``stim``."""
+    name = sensor_subckt_name(kind, model)
+    match kind:
+        case ComponentKind.LDR:
+            ldr = LDR_MODELS[model or "GL5528"]
+            ohms = (
+                f"min({ldr.dark_ohms:g},{ldr.ohms_at_10_lux:g}"
+                f"*pow(max(V(stim),1e-3)/10,{-ldr.gamma:g}))"
+            )
+            return f".subckt {name} 1 2 stim\nB1 1 2 I=V(1,2)/{ohms}\n.ends"
+        case ComponentKind.THERMISTOR:
+            b = NTC_B_CONSTANTS[model or "B3950"]
+            kelvin = f"({_clamped('V(stim)', -55, 150)}+273.15)"
+            ohms = f"({{r25}}*exp({b:g}*(1/{kelvin}-1/298.15)))"
+            return f".subckt {name} 1 2 stim params: r25=10k\nB1 1 2 I=V(1,2)/{ohms}\n.ends"
+        case ComponentKind.GAS_SENSOR:
+            gas = GAS_SENSOR_MODELS[model or "MQ-2"]
+            ratio = (
+                f"min({gas.clean_air_ratio:g},pow(max(V(stim),1)/{gas.scale_ppm:g},"
+                f"{-gas.exponent:g}))"
+            )
+            return f".subckt {name} 1 2 stim\nB1 1 2 I=V(1,2)/({gas.r0_ohms:g}*{ratio})\n.ends"
+        case ComponentKind.PHOTODIODE:
+            per_lux = PHOTODIODE_AMPS_PER_LUX[model or "BPW34"]
+            return "\n".join(
+                [
+                    f".subckt {name} a k stim",
+                    "D1 a k DPHOTO",
+                    f"Bphoto k a I={per_lux:g}*max(V(stim),0)",  # light: cathode -> anode
+                    ".model DPHOTO D(IS=1e-9 N=1.9 RS=2 CJO=72p BV=60 IBV=10u)",
+                    ".ends",
+                ]
+            )
+        case ComponentKind.PHOTOTRANSISTOR:
+            per_lux = PHOTOTRANSISTOR_AMPS_PER_LUX[model or "TEPT5700"]
+            base_per_lux = per_lux / _PHOTOTRANSISTOR_BETA
+            return "\n".join(
+                [
+                    f".subckt {name} c e stim",
+                    "Q1 c b e QPHOTO",
+                    f"Bphoto c b I={base_per_lux:g}*max(V(stim),0)",  # photo base current
+                    f".model QPHOTO NPN(BF={_PHOTOTRANSISTOR_BETA:g} IS=1e-14 VAF=50 "
+                    "CJC=10p CJE=10p)",
+                    ".ends",
+                ]
+            )
+        case ComponentKind.PIR:
+            motion = "0.5*(1+tanh((V(stim)-0.5)/0.05))"
+            powered = f"0.5*(1+tanh((V(vcc,gnd)-{PIR_MIN_SUPPLY_V - 0.5:g})/0.2))"
+            return "\n".join(
+                [
+                    f".subckt {name} vcc out gnd stim",
+                    "Rquiescent vcc gnd 66k",  # about 65 uA idle current
+                    f"Bout o gnd V={PIR_OUTPUT_V:g}*{motion}*{powered}",
+                    "Rout o out 1k",
+                    ".ends",
+                ]
+            )
+        case ComponentKind.POTENTIOMETER:
+            position = _clamped("V(stim)", 0, 1)
+            return "\n".join(
+                [
+                    f".subckt {name} 1 w 2 stim params: r=10k",
+                    f"B1 1 w I=V(1,w)/max({{r}}*{position},{_MIN_SENSOR_OHMS:g})",
+                    f"B2 w 2 I=V(w,2)/max({{r}}*(1-{position}),{_MIN_SENSOR_OHMS:g})",
+                    ".ends",
+                ]
+            )
+        case _:
+            raise ValueError(f"{kind} is not a sensor")
+
+
 # --------------------------------------------------------------------------- library section
 
 
@@ -354,9 +494,11 @@ def library_text(
     models: Iterable[DeviceModel],
     opamps: Iterable[tuple[str, bool]],
     logic: Iterable[tuple[ComponentKind, str, bool]] = (),
+    sensors: Iterable[tuple[ComponentKind, str | None]] = (),
 ) -> str:
-    """Deduplicated library section for the models, op-amps and logic gates in use."""
+    """Deduplicated library section for the models, op-amps, gates and sensors in use."""
     cards = sorted({m.spice_name: m.text for m in models}.items())
     subckts = {opamp_subckt_name(m, s): opamp_subckt(m, s) for m, s in opamps}
     subckts |= {logic_subckt_name(k, m, s): logic_subckt(k, m, s) for k, m, s in logic}
+    subckts |= {sensor_subckt_name(k, m): sensor_subckt(k, m) for k, m in sensors}
     return "\n".join([text for _, text in cards] + [text for _, text in sorted(subckts.items())])

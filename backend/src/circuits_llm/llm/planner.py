@@ -39,6 +39,17 @@ _FAMILY_ALIASES: Final[dict[str, Family]] = {
     "opamps": Family.AMPLIFIERS,
     "op_amps": Family.AMPLIFIERS,
     "comparator": Family.AMPLIFIERS,
+    "sensor": Family.SENSORS,
+    "ldr": Family.SENSORS,
+    "light_sensor": Family.SENSORS,
+    "photoresistor": Family.SENSORS,
+    "thermistor": Family.SENSORS,
+    "temperature_sensor": Family.SENSORS,
+    "gas_sensor": Family.SENSORS,
+    "pir": Family.SENSORS,
+    "motion_sensor": Family.SENSORS,
+    "potentiometer": Family.SENSORS,
+    "photodiode": Family.SENSORS,
 }
 
 

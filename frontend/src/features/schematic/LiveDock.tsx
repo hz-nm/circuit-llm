@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Circuit } from "../../api/types";
 import { formatReadout } from "../../lib/si";
-import { cursorLabel, isDrivable, netKey, type LiveVoltages } from "../simulation/live";
+import { cursorLabel, isDrivable, netKey, sampleAt, type LiveVoltages } from "../simulation/live";
+import { formatStimulus, STIMULUS } from "./stimulus";
 import type { SimulationSession } from "../simulation/session";
 
 const SWEEP_MS = 4000;
@@ -41,8 +42,15 @@ function Scrubber({ live, session }: { live: Extract<LiveVoltages, { kind: "swee
   // Fixed-width readout: the label (and so the slider) never changes size while playing.
   const label = cursorLabel(live.sweep, value, formatReadout);
 
+  // Environment readouts ("☀ LDR1  120 lx") for every sensor with a recorded stimulus.
+  const environment = session.version.circuit.components.flatMap((c) => {
+    const spec = STIMULUS[c.kind];
+    const ys = live.stimuli.get(netKey(c.id));
+    return spec && ys ? [{ id: c.id, text: `${spec.icon} ${c.id} ${formatStimulus(sampleAt(live.x, ys, value), spec)}` }] : [];
+  });
+
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
       <button
         type="button"
         onClick={() => setPlaying((p) => !p)}
@@ -61,11 +69,25 @@ function Scrubber({ live, session }: { live: Extract<LiveVoltages, { kind: "swee
         onChange={(e) => cursor.set(Number(e.target.value), "scrubber")}
         aria-label="Sweep position"
         aria-valuetext={label}
-        className="min-w-24 flex-1 accent-[var(--c-accent)]"
+        className="min-w-40 flex-1 accent-[var(--c-accent)]"
       />
       <span className="shrink-0 whitespace-pre font-mono text-xs tabular-nums" style={{ minWidth: `${label.length}ch` }}>
         {label}
       </span>
+      {environment.length > 0 && (
+        <span role="group" aria-label="Environment" className={`flex gap-1 ${environment.length > 2 ? "basis-full flex-wrap" : "shrink-0"}`}>
+          {environment.map((e) => (
+            <span
+              key={e.id}
+              title={`Environment seen by ${e.id} at this point`}
+              className="whitespace-pre rounded-md bg-sunken px-1.5 py-0.5 font-mono text-xs tabular-nums"
+              style={{ minWidth: `${e.text.length}ch` }}
+            >
+              {e.text}
+            </span>
+          ))}
+        </span>
+      )}
     </div>
   );
 }

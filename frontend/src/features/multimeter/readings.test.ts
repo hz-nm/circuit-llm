@@ -32,4 +32,11 @@ describe("meterReadings", () => {
     expect(value(rows, "I_D")).toBe(2);
     expect(value(rows, "P")).toBe(6);
   });
+
+  it("gives resistive sensors their stimulus and effective resistance", () => {
+    const ldr: Component = { id: "LDR1", kind: "ldr", pins: { "1": "VCC", "2": "LED_A" }, stimulus: 500 };
+    const rows = meterReadings(ldr, v, () => 0.001, (id) => (id === "LDR1" ? 120 : undefined));
+    expect(value(rows, "light")).toBe(120); // recorded stimulus wins over the constant
+    expect(value(rows, "R")).toBeCloseTo(7100);
+  });
 });

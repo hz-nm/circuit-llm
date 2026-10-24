@@ -31,6 +31,8 @@ _PREFIX_MULTIPLIERS: Final[dict[str, float]] = {
 # Ω is the Greek capital omega, Ω the dedicated ohm sign; LLMs emit both.
 _UNITS: Final = (
     r"ohms?|Ω|Ω|farads?|f|henrys?|henries|h|volts?|v|amps?|a|hz|hertz|seconds?|s|watts?|w"
+    # sensor stimulus units: light, temperature, gas concentration
+    r"|lux|lx|°c|degc|deg c|celsius|ppm"
 )
 
 _VALUE_RE: Final = re.compile(

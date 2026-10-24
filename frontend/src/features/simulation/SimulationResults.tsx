@@ -126,6 +126,9 @@ export function toDb(values: readonly number[]): number[] {
 
 let syncCounter = 0;
 
+/** Chart names for sensor environment units. */
+const ENV_NAMES: Record<string, string> = { lux: "Light", "°C": "Temperature", ppm: "Gas", "": "Environment" };
+
 const probedByDefault = (t: Trace) => t.probed !== false;
 
 interface Indexed {
@@ -177,14 +180,17 @@ function SweepSection({ result, links, cursor }: { result: SweepResult; links: P
   const visible = (t: Trace) => !hidden.has(t.name);
 
   // One chart per unit: a chart never has two y-scales.
+  // Sensor environment traces (lux, °C, ...) get their own small charts above the electrical ones,
+  // so 1000 lux never flattens the volts.
   const groups = useMemo(() => {
     const byUnit = new Map<string, Indexed[]>();
     for (const item of shown) {
-      const list = byUnit.get(item.trace.unit) ?? [];
+      const key = item.trace.stimulus_of ? `env:${item.trace.unit}` : item.trace.unit;
+      const list = byUnit.get(key) ?? [];
       list.push(item);
-      byUnit.set(item.trace.unit, list);
+      byUnit.set(key, list);
     }
-    return [...byUnit.entries()];
+    return [...byUnit.entries()].sort(([a], [b]) => Number(b.startsWith("env:")) - Number(a.startsWith("env:")));
   }, [shown]);
 
   const series = (items: Indexed[], values: (t: Trace) => number[]): ChartSeries[] =>
@@ -244,22 +250,28 @@ function SweepSection({ result, links, cursor }: { result: SweepResult; links: P
             )}
           </>
         ) : (
-          groups.map(([unit, items]) => (
-            <UPlotChart
-              key={unit}
-              title={unit === "V" ? "Voltages" : unit === "A" ? "Currents" : unit || "Values"}
-              x={result.x.values}
-              xLabel={result.type === "tran" ? "t" : result.x.name}
-              xUnit={result.x.unit}
-              logX={logX}
-              yLabel={unit === "V" ? "Voltage" : unit === "A" ? "Current" : "Value"}
-              yUnit={unit}
-              syncKey={syncKey}
-              cursor={cursor}
-              height={groups.length > 1 ? 200 : 260}
-              series={series(items, (t) => t.values)}
-            />
-          ))
+          groups.map(([key, items]) => {
+            const env = key.startsWith("env:");
+            const unit = env ? key.slice(4) : key;
+            const name = env ? (ENV_NAMES[unit] ?? "Environment") : unit === "V" ? "Voltage" : unit === "A" ? "Current" : "Value";
+            return (
+              <UPlotChart
+                key={key}
+                title={env ? `Environment: ${name.toLowerCase()}` : unit === "V" ? "Voltages" : unit === "A" ? "Currents" : unit || "Values"}
+                x={result.x.values}
+                xLabel={result.type === "tran" ? "t" : result.x.name}
+                xUnit={result.x.unit}
+                logX={logX}
+                yLabel={name}
+                yUnit={unit}
+                plainY={env}
+                syncKey={syncKey}
+                cursor={cursor}
+                height={env ? 140 : groups.length > 1 ? 200 : 260}
+                series={series(items, (t) => t.values)}
+              />
+            );
+          })
         ))}
     </div>
   );

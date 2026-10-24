@@ -59,12 +59,14 @@ export const netKey = (net: string) => net.toUpperCase();
  * currents keyed by component id (both upper-cased), static (op) or per sample.
  */
 export type LiveVoltages =
-  | { kind: "static"; values: Map<string, number>; currents: Map<string, number>; maxAbs: number }
+  | { kind: "static"; values: Map<string, number>; currents: Map<string, number>; stimuli: Map<string, number>; maxAbs: number }
   | {
       kind: "sweep";
       x: Float64Array;
       values: Map<string, Float64Array>;
       currents: Map<string, Float64Array>;
+      /** Sensor environment (light, temperature, ...) by component id, from `stimulus_of` traces. */
+      stimuli: Map<string, Float64Array>;
       maxAbs: number;
       sweep: SweepResult;
     };
@@ -76,15 +78,20 @@ export function buildLiveVoltages(result: SimulationResult | null | undefined, d
   if (sweep && isDrivable(sweep)) {
     const values = new Map<string, Float64Array>();
     const currents = new Map<string, Float64Array>();
+    const stimuli = new Map<string, Float64Array>();
     let maxAbs = 0;
     for (const trace of sweep.traces) {
+      if (trace.stimulus_of) {
+        stimuli.set(netKey(trace.stimulus_of), Float64Array.from(trace.values));
+        continue;
+      }
       if (trace.component && trace.unit === "A") currents.set(netKey(trace.component), Float64Array.from(trace.values));
       if (!trace.net || trace.unit !== "V") continue;
       const arr = Float64Array.from(trace.values);
       for (const v of arr) maxAbs = Math.max(maxAbs, Math.abs(v));
       values.set(netKey(trace.net), arr);
     }
-    if (values.size > 0) return { kind: "sweep", x: Float64Array.from(sweep.x.values), values, currents, maxAbs, sweep };
+    if (values.size > 0) return { kind: "sweep", x: Float64Array.from(sweep.x.values), values, currents, stimuli, maxAbs, sweep };
   }
   const op = analyses.find((a) => a.type === "op");
   if (op && op.type === "op") {
@@ -95,7 +102,7 @@ export function buildLiveVoltages(result: SimulationResult | null | undefined, d
       maxAbs = Math.max(maxAbs, Math.abs(v));
     }
     const currents = new Map(Object.entries(op.branch_currents).map(([id, i]) => [netKey(id), i]));
-    return { kind: "static", values, currents, maxAbs };
+    return { kind: "static", values, currents, stimuli: new Map(), maxAbs };
   }
   return null;
 }
@@ -125,6 +132,15 @@ export function currentsAt(live: LiveVoltages, x: number | null): Map<string, nu
   const at = x ?? live.x[0] ?? 0;
   const out = new Map<string, number>();
   for (const [id, ys] of live.currents) out.set(id, sampleAt(live.x, ys, at));
+  return out;
+}
+
+/** Sensor environment values at the cursor (static results have none; use the circuit's constant). */
+export function stimuliAt(live: LiveVoltages, x: number | null): Map<string, number> {
+  if (live.kind === "static") return live.stimuli;
+  const at = x ?? live.x[0] ?? 0;
+  const out = new Map<string, number>();
+  for (const [id, ys] of live.stimuli) out.set(id, sampleAt(live.x, ys, at));
   return out;
 }
 

@@ -32,17 +32,20 @@ from circuits_llm.domain import (
     PwlWave,
     SineWave,
     Transient,
+    Waveform,
 )
 
 from .library import (
     LOGIC_FAMILIES,
     LOGIC_KINDS,
     OPAMP_MODELS,
+    SENSOR_KINDS,
     DeviceModel,
     discrete_model,
     library_text,
     logic_subckt_name,
     opamp_subckt_name,
+    sensor_subckt_name,
     zener_model,
 )
 
@@ -81,6 +84,13 @@ _ELEMENT_LETTER: Final[dict[ComponentKind, str]] = {
     ComponentKind.NOR_GATE: "X",
     ComponentKind.XOR_GATE: "X",
     ComponentKind.SCHMITT_INVERTER: "X",
+    ComponentKind.LDR: "X",
+    ComponentKind.THERMISTOR: "X",
+    ComponentKind.PHOTODIODE: "X",
+    ComponentKind.PHOTOTRANSISTOR: "X",
+    ComponentKind.GAS_SENSOR: "X",
+    ComponentKind.PIR: "X",
+    ComponentKind.POTENTIOMETER: "X",
 }
 _PASSIVES: Final = frozenset(
     {ComponentKind.RESISTOR, ComponentKind.CAPACITOR, ComponentKind.INDUCTOR}
@@ -106,6 +116,7 @@ class TraceSpec:
     probed: bool = True  # False: recorded only for animation and the multimeter
     component: str | None = None  # set for component-current traces
     pin: str | None = None  # current flows into this pin of `component`
+    stimulus_of: str | None = None  # set for a sensor's environment trace
 
 
 def _voltage_trace(net: str, *, probed: bool) -> TraceSpec:
@@ -181,6 +192,8 @@ class _Names:
     element: dict[str, str]  # component id -> SPICE element name
     sense_source: dict[str, str]  # probed component id -> sense source name
     sense_node: dict[str, str]  # probed component id -> node between sense source and pin
+    stimulus_source: dict[str, str] = field(default_factory=dict[str, str])  # sensor id ->
+    stimulus_node: dict[str, str] = field(default_factory=dict[str, str])  # sensor id -> node
 
 
 def _assign_names(circuit: Circuit, current_probes: list[Component]) -> _Names:
@@ -203,7 +216,13 @@ def _assign_names(circuit: Circuit, current_probes: list[Component]) -> _Names:
         name = element[component.id]
         sense_source[component.id] = _unique(f"VSENSE_{name}", used)
         sense_node[component.id] = _unique(f"{name}_sense", used_nodes)
-    return _Names(element, sense_source, sense_node)
+    names = _Names(element, sense_source, sense_node)
+    for component in circuit.components:
+        if CATALOG[component.kind].stimulus is not None:
+            name = element[component.id]
+            names.stimulus_source[component.id] = _unique(f"VSTIM_{name}", used)
+            names.stimulus_node[component.id] = _unique(f"stim_{name}", used_nodes)
+    return names
 
 
 def _check_net_case(circuit: Circuit) -> None:
@@ -279,6 +298,14 @@ def _traces(circuit: Circuit, names: _Names) -> tuple[TraceSpec, ...]:
         vector = _current_vector(component, names)
         traces.setdefault(vector, _current_trace(vector, component, probed=True))
 
+    for component in circuit.components:  # the environment each sensor sees
+        stimulus = CATALOG[component.kind].stimulus
+        node = names.stimulus_node.get(component.id)
+        if stimulus is not None and node is not None:
+            name = f"{stimulus.quantity}({component.id})"
+            vector = f"v({node.lower()})"
+            traces[vector] = TraceSpec(vector, name, stimulus.unit, stimulus_of=component.id)
+
     for net in nets[:MAX_NODE_TRACES]:
         traces.setdefault(net, _voltage_trace(net, probed=False))
     for component in circuit.components:
@@ -304,8 +331,9 @@ def _pin_nodes(component: Component, spec: ComponentSpec, names: _Names) -> list
     return nodes
 
 
-def _source_spec(component: Component) -> str:
-    match component.waveform:
+def _waveform_spec(waveform: Waveform | None) -> tuple[float, str]:
+    """(value at t = 0, SPICE time function such as " PWL(0 18 5 0)")."""
+    match waveform:
         case SineWave() as sine:
             dc = sine.offset
             wave = (
@@ -324,6 +352,11 @@ def _source_spec(component: Component) -> str:
             wave = f" PWL({pairs})"
         case None:
             dc, wave = 0.0, ""
+    return dc, wave
+
+
+def _source_spec(component: Component) -> str:
+    dc, wave = _waveform_spec(component.waveform)
     if component.value is not None:
         dc = component.value
     ac = f" AC {_num(component.ac_magnitude)}" if component.ac_magnitude is not None else ""
@@ -363,6 +396,42 @@ def _logic_model(component: Component, spec: ComponentSpec) -> tuple[str, bool]:
     return model, all(connected)
 
 
+def _emit_sensor(
+    component: Component,
+    spec: ComponentSpec,
+    element: str,
+    nodes: str,
+    names: _Names,
+    out: _Emitted,
+) -> None:
+    """A hidden source carrying the stimulus, then the sensor's subcircuit instance."""
+    assert spec.stimulus is not None
+    stimulus = component.stimulus if component.stimulus is not None else spec.stimulus.default
+    if isinstance(stimulus, float | int):
+        dc, wave = float(stimulus), ""
+    else:
+        dc, wave = _waveform_spec(stimulus)
+    stim_node = names.stimulus_node[component.id]
+    out.lines.append(f"{names.stimulus_source[component.id]} {stim_node} 0 DC {_num(dc)}{wave}")
+
+    model = component.model or spec.default_model
+    params = ""
+    if component.kind is ComponentKind.THERMISTOR:
+        params = f" params: r25={_num(_positive_value(component))}"
+    elif component.kind is ComponentKind.POTENTIOMETER:
+        params = f" params: r={_num(_positive_value(component))}"
+    out.sensors.append((component.kind, model))
+    out.lines.append(
+        f"{element} {nodes} {stim_node} {sensor_subckt_name(component.kind, model)}{params}"
+    )
+
+
+def _positive_value(component: Component) -> float:
+    if component.value is None or component.value <= 0:
+        raise SpiceEmissionError(f"{component.id}: value must be a positive number")
+    return component.value
+
+
 def _lamp_resistance(component: Component, spec: ComponentSpec) -> float:
     """A lamp draws its rated power at its rated voltage: R = V^2 / P."""
     rated = component.model or spec.default_model
@@ -380,6 +449,9 @@ class _Emitted:
     opamps: list[tuple[str, bool]] = field(default_factory=list[tuple[str, bool]])
     logic: list[tuple[ComponentKind, str, bool]] = field(
         default_factory=list[tuple[ComponentKind, str, bool]]
+    )
+    sensors: list[tuple[ComponentKind, str | None]] = field(
+        default_factory=list[tuple[ComponentKind, str | None]]
     )
 
 
@@ -401,6 +473,8 @@ def _emit_component(component: Component, names: _Names, out: _Emitted) -> None:
         model, supplies = _logic_model(component, spec)
         out.logic.append((component.kind, model, supplies))
         out.lines.append(f"{element} {nodes} {logic_subckt_name(component.kind, model, supplies)}")
+    elif component.kind in SENSOR_KINDS:
+        _emit_sensor(component, spec, element, nodes, names, out)
     elif component.kind is ComponentKind.LAMP:
         out.lines.append(f"{element} {nodes} {_num(_lamp_resistance(component, spec))}")
     else:
@@ -497,7 +571,7 @@ def _iter_lines(circuit: Circuit, names: _Names) -> Iterator[str]:
     for component in circuit.components:
         _emit_component(component, names, emitted)
     yield from emitted.lines
-    library = library_text(emitted.models, emitted.opamps, emitted.logic)
+    library = library_text(emitted.models, emitted.opamps, emitted.logic, emitted.sensors)
     if library:
         yield library
 
