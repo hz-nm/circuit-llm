@@ -3,10 +3,24 @@
 circuits-llm turns a chat conversation into a validated, simulated circuit.
 
 ```
-chat ─► LLM ─► lenient parse ─► Circuit (Pydantic) ─► ERC ──errors──► repair prompt (bounded)
-                                                    │
-                                                    └─ok─► Mermaid view · schematic · SPICE ─► ngspice ─► plots
+chat ─► planner ─► designer LLM ─► lenient parse ─► Circuit (Pydantic) ─► ERC ─► ngspice ─► bench checks
+          │              ▲                                                │         │            │
+          │              └──────────── errors: repair prompt (bounded) ◄──┴─────────┴────────────┘
+          └─ picks component families + sketches the design   ok ─► Mermaid · schematic · plots · meters
 ```
+
+1. **Planner** (one short LLM call): chooses the component families the request needs
+   (`core` is always included) and writes a short plan. The designer prompt then
+   describes only those families, which keeps it focused for weaker models. If the
+   plan is unusable, every family is described.
+2. **Designer**: returns the circuit JSON; the lenient parser canonicalises it.
+3. **ERC**: wiring rules (missing pins, floating nodes, voltage loops, ...).
+4. **Simulation**: ngspice must accept and solve the circuit.
+5. **Bench checks** (`simulation/ratings.py`): simulated currents, voltages and power
+   are compared with datasheet ratings (LED current, transistor current/power/voltage,
+   logic and op-amp supply ranges, lamp overload, ...). Errors mean a real part would
+   be destroyed or not work, and go back to the model like ERC errors; warnings
+   (e.g. a resistor needing a higher power rating) are shown to the user.
 
 The **netlist (`domain.Circuit`) is the single source of truth.** Mermaid, the
 schematic and the SPICE deck are all derived from it.

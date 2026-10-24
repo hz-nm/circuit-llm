@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorMessage, unwrap } from "../../api/client";
 import { keys, useSimulation } from "../../api/queries";
-import type { SimulationResult, VersionOut } from "../../api/types";
+import type { Issue, SimulationResult, VersionOut } from "../../api/types";
 import { buildLiveVoltages, CursorStore, defaultDriver, isDrivable, type LiveVoltages } from "./live";
 import { useProbes, type Probes } from "./probes";
 
@@ -38,9 +38,23 @@ export interface SimulationSession {
   live: LiveVoltages | null;
   cursor: CursorStore;
   probes: Probes;
+  /** Post-simulation rating checks of the current result (errors first). */
+  checks: Issue[];
+  /** Rating issues by component id (as written in the circuit). */
+  ratingIssues: ReadonlyMap<string, Issue[]>;
+  /** Latest request to show something elsewhere in the workspace (seq makes repeats distinct). */
+  nav: NavRequest | null;
+  navigate: (tab: NavRequest["tab"], focus?: NavRequest["focus"]) => void;
   /** Multimeter cards pinned on the schematic (component ids); kept across tab switches. */
   pinned: string[];
   setPinned: (update: (list: string[]) => string[]) => void;
+}
+
+export interface NavRequest {
+  tab: "schematic" | "simulation";
+  /** "checks" scrolls the Simulation tab to the Bench checks panel. */
+  focus: "checks" | null;
+  seq: number;
 }
 
 const Context = createContext<SimulationSession | null>(null);
@@ -177,6 +191,20 @@ export function SimulationSessionProvider({ projectId, version, available, child
 
   const probes = useProbes(projectId, version.number, version.circuit, result);
   const [pinned, setPinnedState] = useState<string[]>([]);
+  const checks = useMemo(() => {
+    const list = result?.ok ? (result.checks ?? []) : [];
+    return [...list.filter((c) => c.severity === "error"), ...list.filter((c) => c.severity !== "error")];
+  }, [result]);
+  const ratingIssues = useMemo(() => {
+    const map = new Map<string, Issue[]>();
+    for (const c of checks) if (c.component_id) map.set(c.component_id, [...(map.get(c.component_id) ?? []), c]);
+    return map;
+  }, [checks]);
+  const [nav, setNav] = useState<NavRequest | null>(null);
+  const navigate = useCallback(
+    (tab: NavRequest["tab"], focus: NavRequest["focus"] = null) => setNav((n) => ({ tab, focus, seq: (n?.seq ?? 0) + 1 })),
+    [],
+  );
   const setPinned = useCallback((update: (list: string[]) => string[]) => setPinnedState(update), []);
   const running = status.kind === "running";
   const shownStatus = useMemo<RunStatus>(
@@ -201,10 +229,14 @@ export function SimulationSessionProvider({ projectId, version, available, child
       live,
       cursor,
       probes,
+      checks,
+      ratingIssues,
+      nav,
+      navigate,
       pinned,
       setPinned,
     }),
-    [projectId, version, result, shownStatus, running, run, stop, autoRun, setAutoRun, lastRun, driver, live, cursor, probes, pinned, setPinned],
+    [projectId, version, result, shownStatus, running, run, stop, autoRun, setAutoRun, lastRun, driver, live, cursor, probes, checks, ratingIssues, nav, navigate, pinned, setPinned],
   );
 
   return <Context.Provider value={session}>{children}</Context.Provider>;

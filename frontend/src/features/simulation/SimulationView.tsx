@@ -1,10 +1,27 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { BenchChecks } from "./BenchChecks";
 import { useSimulationSession } from "./session";
+
+/** The last "show the checks" request already scrolled to (so tab revisits don't re-scroll). */
+let handledChecksRequest = 0;
 import { SimulationResults, type PlotLinks } from "./SimulationResults";
 
 /** Simulation tab: results of the selected version (runs are started from the run bar). */
 export function SimulationView() {
-  const { result, version, running, probes, cursor, driver } = useSimulationSession();
+  const { result, version, running, probes, cursor, driver, checks, nav, navigate, setPinned } = useSimulationSession();
+  const checksRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (nav?.focus !== "checks" || nav.seq === handledChecksRequest || !checksRef.current) return;
+    handledChecksRequest = nav.seq;
+    checksRef.current.scrollIntoView({ block: "start" });
+    checksRef.current.focus({ preventScroll: true });
+  }, [nav, checks.length]);
+
+  const showComponent = (id: string) => {
+    setPinned((list) => (list.includes(id) ? list : [...list, id]));
+    navigate("schematic");
+  };
   const analyses = version.circuit.analyses ?? [];
   const links = useMemo<PlotLinks>(
     () => ({
@@ -32,6 +49,7 @@ export function SimulationView() {
                 : "This circuit defines no analyses. Set a stop time in the run bar to run a transient, or add analyses in the Netlist tab."}
           </p>
         )}
+        {checks.length > 0 && <BenchChecks ref={checksRef} checks={checks} onShow={showComponent} />}
         {result && <SimulationResults result={result} links={links} />}
       </div>
     </div>

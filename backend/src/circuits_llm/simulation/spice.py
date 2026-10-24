@@ -86,6 +86,9 @@ _PASSIVES: Final = frozenset(
     {ComponentKind.RESISTOR, ComponentKind.CAPACITOR, ComponentKind.INDUCTOR}
 )
 _OPAMP_SUPPLY_PINS: Final = ("v+", "v-")
+_TRANSISTORS: Final = frozenset(
+    {ComponentKind.NPN, ComponentKind.PNP, ComponentKind.NMOS, ComponentKind.PMOS}
+)
 
 
 class SpiceEmissionError(ValueError):
@@ -102,6 +105,7 @@ class TraceSpec:
     net: str | None = None  # set for node-voltage traces
     probed: bool = True  # False: recorded only for animation and the multimeter
     component: str | None = None  # set for component-current traces
+    pin: str | None = None  # current flows into this pin of `component`
 
 
 def _voltage_trace(net: str, *, probed: bool) -> TraceSpec:
@@ -109,7 +113,10 @@ def _voltage_trace(net: str, *, probed: bool) -> TraceSpec:
 
 
 def _current_trace(vector: str, component: Component, *, probed: bool) -> TraceSpec:
-    return TraceSpec(vector, f"I({component.id})", "A", probed=probed, component=component.id)
+    pin = CATALOG[component.kind].pins[0].name
+    return TraceSpec(
+        vector, f"I({component.id})", "A", probed=probed, component=component.id, pin=pin
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,7 +234,9 @@ def _current_probe_targets(circuit: Circuit) -> list[Component]:
 
 
 def _metered_components(circuit: Circuit, probed: list[Component]) -> list[Component]:
-    """Probed parts plus every other two-pin part (bounded) so the multimeter has currents.
+    """Probed parts plus every two-pin part and transistor (bounded), so the multimeter
+    and rating checks have currents. The sense source sits on the first catalog pin, which
+    for transistors is the collector or drain.
 
     Voltage sources report their own branch current and need no sense source.
     """
@@ -236,7 +245,9 @@ def _metered_components(circuit: Circuit, probed: list[Component]) -> list[Compo
         if len(metered) >= MAX_METERED_COMPONENTS:
             break
         two_pin = len(CATALOG[component.kind].pins) == 2
-        if two_pin and component.kind is not ComponentKind.VOLTAGE_SOURCE:
+        if (two_pin or component.kind in _TRANSISTORS) and (
+            component.kind is not ComponentKind.VOLTAGE_SOURCE
+        ):
             metered.setdefault(component.id, component)
     return list(metered.values())
 

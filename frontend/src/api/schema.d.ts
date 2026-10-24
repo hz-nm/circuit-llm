@@ -736,6 +736,8 @@ export interface components {
              * @default 0
              */
             duration_ms: number;
+            /** Checks */
+            checks?: components["schemas"]["Issue"][];
         };
         /** SineWave */
         SineWave: {
@@ -789,6 +791,8 @@ export interface components {
             net?: string | null;
             /** Component */
             component?: string | null;
+            /** Pin */
+            pin?: string | null;
             /**
              * Probed
              * @default true

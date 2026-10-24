@@ -24,10 +24,12 @@ describe("meterReadings", () => {
     expect(value(rows, "P")).toBeNull();
   });
 
-  it("shows V_GS and V_DS for a MOSFET", () => {
+  it("shows V_GS, V_DS, I_D and P for a MOSFET", () => {
     const m1: Component = { id: "M1", kind: "nmos", pins: { drain: "D", gate: "G", source: "GND" } };
-    const rows = meterReadings(m1, v, () => undefined);
+    const rows = meterReadings(m1, v, (id) => (id === "M1" ? 2 : undefined));
     expect(value(rows, "V_GS")).toBe(5);
     expect(value(rows, "V_DS")).toBe(3);
+    expect(value(rows, "I_D")).toBe(2);
+    expect(value(rows, "P")).toBe(6);
   });
 });

@@ -9,15 +9,27 @@ const key = (net: string) => net.toUpperCase();
 
 // ---------------------------------------------------------------------------- static layer
 
-function ComponentGlyph({ item, highlighted }: { item: LaidOutComponent; highlighted: boolean }) {
+/** A rating problem on a part (from the post-simulation bench checks). */
+export interface RatingMark {
+  severity: "error" | "warning";
+  message: string;
+}
+
+function ComponentGlyph({ item, highlighted, rating }: { item: LaidOutComponent; highlighted: boolean; rating?: RatingMark }) {
   const { placed } = item;
   const { symbol, rotation, offset, component } = placed;
+  const red = highlighted || rating?.severity === "error";
   return (
     <g
       transform={`translate(${round(item.x)} ${round(item.y)})`}
-      className={highlighted ? "sch-component sch-highlight" : "sch-component"}
+      className={red ? "sch-component sch-highlight" : "sch-component"}
       data-component={component.id}
     >
+      {rating && <title>{`Rating ${rating.severity === "error" ? "problem" : "warning"}: ${rating.message}`}</title>}
+      {/* Warnings get an amber outline; errors share the red ERC highlight. */}
+      {rating && (
+        <rect x={-4} y={-4} width={placed.width + 8} height={placed.height + 8} rx={5} className={rating.severity === "error" ? "sch-rating-error" : "sch-rating-warn"} />
+      )}
       {/* Transparent box so the whole part (not just its strokes) can be hovered and clicked. */}
       <rect width={placed.width} height={placed.height} className="sch-hitbox" />
       <g transform={`translate(${offset.x} ${offset.y}) ${rotationTransform(symbol.width, symbol.height, rotation)}`}>
@@ -51,11 +63,24 @@ function ComponentLabel({ item }: { item: LaidOutComponent }) {
 }
 
 /** Symbols and component labels: never change while animating, so they are memoised. */
-const StaticLayer = memo(function StaticLayer({ schematic, highlight }: { schematic: Schematic; highlight?: ReadonlySet<string> }) {
+const StaticLayer = memo(function StaticLayer({
+  schematic,
+  highlight,
+  ratings,
+}: {
+  schematic: Schematic;
+  highlight?: ReadonlySet<string>;
+  ratings?: ReadonlyMap<string, RatingMark>;
+}) {
   return (
     <>
       {schematic.components.map((item) => (
-        <ComponentGlyph key={item.placed.component.id} item={item} highlighted={highlight?.has(item.placed.component.id) ?? false} />
+        <ComponentGlyph
+          key={item.placed.component.id}
+          item={item}
+          highlighted={highlight?.has(item.placed.component.id) ?? false}
+          rating={ratings?.get(item.placed.component.id)}
+        />
       ))}
       {schematic.components.map((item) => (
         <ComponentLabel key={item.placed.component.id} item={item} />
@@ -139,12 +164,13 @@ function ProbeBadge({ at, color, net }: { at: Point; color: string; net: string 
 export interface SchematicSvgProps {
   schematic: Schematic;
   highlight?: ReadonlySet<string>;
+  ratings?: ReadonlyMap<string, RatingMark>;
   live?: LiveOverlay | null;
   probe?: ProbeHandlers | null;
 }
 
 /** SVG content of a laid-out schematic (testable with renderToStaticMarkup). */
-export function SchematicContent({ schematic, highlight, live = null, probe = null }: SchematicSvgProps) {
+export function SchematicContent({ schematic, highlight, ratings, live = null, probe = null }: SchematicSvgProps) {
   const voltageOf = (net: string) => live?.voltages?.get(key(net));
   const labelText = (net: string, name: string | null) => {
     const v = voltageOf(net);
@@ -169,7 +195,7 @@ export function SchematicContent({ schematic, highlight, live = null, probe = nu
       {schematic.junctions.map((j) => (
         <circle key={`${j.x},${j.y}`} cx={round(j.x)} cy={round(j.y)} r={3} className="sch-junction" />
       ))}
-      <StaticLayer schematic={schematic} highlight={highlight} />
+      <StaticLayer schematic={schematic} highlight={highlight} ratings={ratings} />
       {flags.map((f) => (
         <g key={`flag:${f.net}:${f.anchor.x}:${f.anchor.y}`}>
           <path d={toPath(f.wire)} className="sch-wire" />
@@ -232,6 +258,8 @@ export const SCHEMATIC_CSS = `
 .sch-net-label { font: 600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--sch-net, #0f766e); stroke: var(--sch-bg, #ffffff); stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; font-variant-numeric: tabular-nums; }
 .sch-probe-glow { fill: none; stroke: var(--sch-ink, #1f2937); stroke-width: 9; stroke-opacity: 0.16; stroke-linecap: round; stroke-linejoin: round; }
 .sch-probe-badge circle { stroke: var(--sch-bg, #ffffff); stroke-width: 2; }
+.sch-rating-error { fill: var(--sch-highlight, #dc2626); fill-opacity: 0.08; stroke: var(--sch-highlight, #dc2626); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.sch-rating-warn { fill: none; stroke: #d97706; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .sch-hitbox { fill: transparent; stroke: none; pointer-events: all; cursor: pointer; }
 .sch-net-label { white-space: pre; }
 .sch-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; pointer-events: stroke; }

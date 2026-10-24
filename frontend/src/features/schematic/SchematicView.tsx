@@ -10,7 +10,7 @@ import type { SimulationSession } from "../simulation/session";
 import { seriesColor } from "../simulation/UPlotChart";
 import { layoutCircuit, type ElkLike } from "./layout";
 import { LiveDock } from "./LiveDock";
-import { SCHEMATIC_CSS, SchematicContent, type LiveOverlay, type ProbeHandlers } from "./SchematicSvg";
+import { SCHEMATIC_CSS, SchematicContent, type LiveOverlay, type ProbeHandlers, type RatingMark } from "./SchematicSvg";
 import { usePanZoom } from "./usePanZoom";
 
 let elkPromise: Promise<ElkLike> | null = null;
@@ -59,6 +59,19 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
     () => new Set((issues ?? []).filter((i) => i.severity === "error" && i.component_id).map((i) => i.component_id!)),
     [issues],
   );
+
+  // Bench-check marks: errors outrank warnings; all messages of a part go in its tooltip.
+  const ratingIssues = session?.ratingIssues;
+  const ratings = useMemo(() => {
+    const map = new Map<string, RatingMark>();
+    for (const [id, list] of ratingIssues ?? []) {
+      map.set(id, {
+        severity: list.some((c) => c.severity === "error") ? "error" : "warning",
+        message: list.map((c) => c.message).join(" · "),
+      });
+    }
+    return map;
+  }, [ratingIssues]);
 
   const sweep = live?.kind === "sweep" ? live.sweep : null;
   const overlay = useMemo<LiveOverlay | null>(() => {
@@ -141,6 +154,7 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
       currents: live ? currents : null,
       plotted: session?.probes.components.has(netKey(id)) ?? false,
       onTogglePlot: session && live ? () => session.probes.togglePlot(id) : undefined,
+      issues: session?.ratingIssues.get(id) ?? [],
     };
   };
 
@@ -193,7 +207,7 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
           <svg className="h-full w-full select-none" onPointerMove={onSvgPointerMove} onPointerLeave={() => setHover(null)} onClick={onSvgClick}>
             <style>{SCHEMATIC_CSS}</style>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
-              <SchematicContent schematic={schematic} highlight={highlight} live={overlay} probe={probeHandlers} />
+              <SchematicContent schematic={schematic} highlight={highlight} ratings={ratings} live={overlay} probe={probeHandlers} />
             </g>
           </svg>
         )}

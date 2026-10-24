@@ -24,6 +24,7 @@ from circuits_llm.domain import Circuit, Issue, Severity
 
 from .diagnostics import diagnose, timeout_reason
 from .extract import ExtractionError, operating_point, sweep
+from .ratings import check_ratings
 from .raw import RawParseError, RawPlot, parse_raw
 from .results import AnalysisResult, SimulationResult
 from .spice import SpiceDeck, SpiceEmissionError, to_spice
@@ -149,7 +150,10 @@ class NgspiceSimulator:
             return SimulationResult(ok=False, netlist="", error=f"Cannot simulate: {exc}")
         output = await asyncio.to_thread(self._run, deck)
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        return _assemble(deck, output, elapsed_ms)
+        result = _assemble(deck, output, elapsed_ms)
+        if result.ok:
+            result = result.model_copy(update={"checks": check_ratings(circuit, result)})
+        return result
 
     def _run(self, deck: SpiceDeck) -> _RunOutput:
         out = _RunOutput()
@@ -240,10 +244,10 @@ class Simulator(Protocol):
 
 
 async def simulation_issues(simulator: Simulator, circuit: Circuit) -> list[Issue]:
-    """Simulate and report a failure as an ERROR issue for the LLM repair loop."""
+    """Simulate; report a failure, and any rating problems, as issues for the repair loop."""
     result = await simulator.simulate(circuit)
     if result.ok:
-        return []
+        return list(result.checks)
     return [
         Issue(
             severity=Severity.ERROR,

@@ -28,7 +28,10 @@ const TONE = { muted: "text-muted", ok: "text-ok", danger: "text-danger", warn: 
 /** Simulink-style toolbar: Run/Stop, transient stop time and step overrides, auto-run, status. */
 export function RunBar() {
   const session = useSimulationSession();
-  const { version, status, running, run, stop, autoRun, setAutoRun } = session;
+  const { version, status, running, run, stop, autoRun, setAutoRun, checks, navigate } = session;
+  const ratingErrors = checks.filter((c) => c.severity === "error").length;
+  const ratingWarnings = checks.length - ratingErrors;
+  const showChecks = (status.kind === "done" || status.kind === "ready") && checks.length > 0;
   const id = useId();
 
   const tran = (version.circuit.analyses ?? []).find((a) => a.type === "tran");
@@ -112,6 +115,20 @@ export function RunBar() {
       <span role="status" aria-live="polite" className={`min-w-0 flex-1 truncate text-right text-xs ${TONE[tone]}`} title={text}>
         {stopInvalid || stepInvalid ? <span className="text-danger">Use a time like 5m or 10u</span> : text}
       </span>
+      {showChecks && (
+        <button
+          type="button"
+          onClick={() => navigate("simulation", "checks")}
+          title="Show the bench checks in the Simulation tab"
+          className={`shrink-0 rounded-full px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-accent ${
+            ratingErrors > 0 ? "bg-danger-soft font-medium text-danger hover:brightness-95" : "text-warn hover:bg-warn-soft"
+          }`}
+        >
+          {ratingErrors > 0
+            ? `⚠ ${ratingErrors} rating problem${ratingErrors === 1 ? "" : "s"}${ratingWarnings ? ` · ${ratingWarnings} warning${ratingWarnings === 1 ? "" : "s"}` : ""}`
+            : `${ratingWarnings} rating note${ratingWarnings === 1 ? "" : "s"}`}
+        </button>
+      )}
     </div>
   );
 }

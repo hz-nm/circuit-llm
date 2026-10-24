@@ -86,7 +86,13 @@ function WorkspaceTabs({
   version: VersionOut;
   onSaved: (n: number) => void;
 }) {
-  const { lastRun } = useSimulationSession();
+  const { lastRun, nav } = useSimulationSession();
+
+  // Requests from the run bar / checks panel ("show the checks", "show this part").
+  useEffect(() => {
+    if (nav) setTab(nav.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to new requests only
+  }, [nav?.seq]);
   const [unseen, setUnseen] = useState(false);
 
   // A manual run from Mermaid/Netlist jumps to the plots; an auto-run only highlights the tab.

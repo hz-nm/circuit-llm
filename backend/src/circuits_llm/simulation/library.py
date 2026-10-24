@@ -136,6 +136,13 @@ DISCRETE_MODELS: Final[dict[ComponentKind, dict[str, DeviceModel]]] = {
             "VTO=3.0 KP=14 LAMBDA=0.005 RD=4m RS=3m RG=2 CGS=1.3n CGDMAX=1.5n CGDMIN=60p "
             "A=0.5 IS=1e-12 RB=5m CJO=1n BV=55",
         ),
+        # Logic-level twin of the IRFZ44N, fitted to Rds(on) ~25 mOhm at Vgs = 5 V and
+        # ~35 mOhm at 4 V (VTO 2 V).
+        "IRLZ44N": _vdmos(
+            "IRLZ44N",
+            "VTO=2.0 KP=19 LAMBDA=0.005 RD=4m RS=3m RG=2 CGS=1.6n CGDMAX=1.5n CGDMIN=60p "
+            "A=0.5 IS=1e-12 RB=5m CJO=1n BV=55",
+        ),
     },
     ComponentKind.PMOS: {
         "BS250": _vdmos(

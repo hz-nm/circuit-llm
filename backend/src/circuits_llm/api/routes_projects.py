@@ -202,7 +202,7 @@ class _SimulationCheck:
         result = await self._simulator.simulate(circuit)
         self._last = (circuit, result)
         if result.ok:
-            return []
+            return list(result.checks)  # rating errors trigger a repair; warnings pass through
         return [
             Issue(
                 severity=Severity.ERROR,

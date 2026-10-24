@@ -2101,6 +2101,13 @@
             "type": "integer",
             "title": "Duration Ms",
             "default": 0
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            },
+            "type": "array",
+            "title": "Checks"
           }
         },
         "additionalProperties": false,
@@ -2236,6 +2243,17 @@
               }
             ],
             "title": "Component"
+          },
+          "pin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pin"
           },
           "probed": {
             "type": "boolean",

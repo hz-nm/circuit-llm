@@ -81,19 +81,29 @@ export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf):
 
   switch (component.kind) {
     case "npn":
-    case "pnp":
+    case "pnp": {
+      const vce = diff(at("collector"), at("emitter"));
+      const ic = i(component.id) ?? null; // current trace flowing into the collector
       return [
         { label: "V_BE", value: diff(at("base"), at("emitter")), unit: "V", hint: "V(base) − V(emitter)", emphasis: true },
-        { label: "V_CE", value: diff(at("collector"), at("emitter")), unit: "V", hint: "V(collector) − V(emitter)", emphasis: true },
+        { label: "V_CE", value: vce, unit: "V", hint: "V(collector) − V(emitter)", emphasis: true },
+        { label: "I_C", value: ic, unit: "A", hint: ic === null ? "Collector current not recorded" : "Current into the collector", emphasis: true },
+        { label: "P", value: vce !== null && ic !== null ? vce * ic : null, unit: "W", hint: "≈ V_CE × I_C (base power neglected)", emphasis: true },
         ...pinRows,
       ];
+    }
     case "nmos":
-    case "pmos":
+    case "pmos": {
+      const vds = diff(at("drain"), at("source"));
+      const id = i(component.id) ?? null; // current trace flowing into the drain
       return [
         { label: "V_GS", value: diff(at("gate"), at("source")), unit: "V", hint: "V(gate) − V(source)", emphasis: true },
-        { label: "V_DS", value: diff(at("drain"), at("source")), unit: "V", hint: "V(drain) − V(source)", emphasis: true },
+        { label: "V_DS", value: vds, unit: "V", hint: "V(drain) − V(source)", emphasis: true },
+        { label: "I_D", value: id, unit: "A", hint: id === null ? "Drain current not recorded" : "Current into the drain", emphasis: true },
+        { label: "P", value: vds !== null && id !== null ? vds * id : null, unit: "W", hint: "≈ V_DS × I_D", emphasis: true },
         ...pinRows,
       ];
+    }
     case "opamp":
       return [
         { label: "V_in+ − V_in−", value: diff(at("in+"), at("in-")), unit: "V", hint: "Differential input voltage", emphasis: true },

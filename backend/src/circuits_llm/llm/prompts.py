@@ -137,12 +137,13 @@ _EXAMPLE_LAMP_REQUEST: Final = (
 )
 _EXAMPLE_LAMP: Final[dict[str, Any]] = {
     "reply": (
-        "A 10k/22k divider scales the panel voltage into a 74HC Schmitt-trigger inverter "
-        "powered from the 12 V battery. In daylight its input is high, so its output is low "
-        "and the IRFZ44N MOSFET is off. At dusk the input falls below about 40% of 12 V, the "
-        "output goes high and the MOSFET switches the 50 W lamp on. The hysteresis (about "
-        "4.6 V to 7 V at the input) stops flicker while the light level hovers. The transient "
-        "run sweeps the panel from day to night and back."
+        "A 15k/22k divider scales the 0-18 V panel voltage to at most 10.7 V, inside the "
+        "rails of a CD4000-series Schmitt-trigger inverter (rated 3-18 V, so it runs straight "
+        "from the 12 V battery; 74HC parts allow only 6 V). In daylight its input is high, so "
+        "its output is low and the IRFZ44N MOSFET is off. At dusk the input falls below about "
+        "40% of 12 V, the output goes high and the MOSFET switches the 50 W lamp on. The "
+        "hysteresis (about 4.7 V to 7.1 V at the input) stops flicker while the light level "
+        "hovers. The transient run sweeps the panel from day to night and back."
     ),
     "circuit": {
         "title": "Solar street lamp with Schmitt trigger",
@@ -160,11 +161,12 @@ _EXAMPLE_LAMP: Final[dict[str, Any]] = {
                 "waveform": {"shape": "pwl", "points": [[0, 18], [0.4, 0], [0.6, 0], [1, 18]]},
                 "pins": {"+": "SOLAR", "-": "GND"},
             },
-            {"id": "R1", "kind": "resistor", "value": "10k", "pins": {"1": "SOLAR", "2": "SENSE"}},
+            {"id": "R1", "kind": "resistor", "value": "15k", "pins": {"1": "SOLAR", "2": "SENSE"}},
             {"id": "R2", "kind": "resistor", "value": "22k", "pins": {"1": "SENSE", "2": "GND"}},
             {
                 "id": "U1",
                 "kind": "schmitt_inverter",
+                "model": "CD4000",
                 "pins": {"a": "SENSE", "y": "GATE", "vdd": "VBAT", "vss": "GND"},
             },
             {

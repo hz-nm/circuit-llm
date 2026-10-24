@@ -306,9 +306,13 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
         display_name="N-channel MOSFET",
         category=Category.SEMICONDUCTOR,
         designator_prefix="M",
-        description="N-channel enhancement MOSFET (gate draws no DC current).",
+        description=(
+            "N-channel enhancement MOSFET (gate draws no DC current). For loads above a few "
+            "hundred mA use IRLZ44N when the gate is driven from 3.3-5 V logic, or IRFZ44N "
+            "when about 10 V of gate drive is available."
+        ),
         pins=_MOSFET_PINS,
-        models=("2N7000", "BS170", "IRFZ44N"),
+        models=("2N7000", "BS170", "IRFZ44N", "IRLZ44N"),
         kind_aliases=("nmosfet", "n_mosfet", "nfet", "n_channel_mosfet", "mosfet", "nchannel"),
         dc_paths=(("drain", "source"),),
     ),

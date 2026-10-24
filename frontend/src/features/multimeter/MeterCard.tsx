@@ -1,4 +1,4 @@
-import type { Component } from "../../api/types";
+import type { Component, Issue } from "../../api/types";
 import { formatReadout } from "../../lib/si";
 import { componentSummary } from "../schematic/componentText";
 import { SYMBOLS } from "../schematic/symbols";
@@ -14,6 +14,8 @@ interface Props {
   /** Present when the part can be plotted (two-pin parts with a result). */
   plotted?: boolean;
   onTogglePlot?: () => void;
+  /** Bench-check problems for this part, shown at the bottom of the card. */
+  issues?: Issue[];
 }
 
 /**
@@ -21,7 +23,7 @@ interface Props {
  * monospace font and the card has a fixed width, so nothing moves while the
  * timeline plays.
  */
-export function MeterCard({ component, voltages, currents, pinned, onUnpin, plotted, onTogglePlot }: Props) {
+export function MeterCard({ component, voltages, currents, pinned, onUnpin, plotted, onTogglePlot, issues = [] }: Props) {
   const rows = meterReadings(
     component,
     (net) => voltages?.get(netKey(net)),
@@ -80,6 +82,16 @@ export function MeterCard({ component, voltages, currents, pinned, onUnpin, plot
         >
           {plotted ? "✓ Plotted (click to remove)" : "Plot V across and current"}
         </button>
+      )}
+      {issues.length > 0 && (
+        <ul className="mt-1.5 space-y-1 border-t border-line pt-1.5">
+          {issues.map((issue, k) => (
+            <li key={k} className={`text-[11px] leading-snug ${issue.severity === "error" ? "text-danger" : "text-warn"}`}>
+              <span className="font-semibold">{issue.severity === "error" ? "⚠ Rating problem: " : "Note: "}</span>
+              {issue.message}
+            </li>
+          ))}
+        </ul>
       )}
       {!pinned && <p className="mt-1 text-[10px] text-muted">Click the part to pin this meter</p>}
     </div>

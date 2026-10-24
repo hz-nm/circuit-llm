@@ -90,6 +90,7 @@ def sweep(plot: RawPlot, planned: PlannedAnalysis, deck: SpiceDeck) -> SweepResu
             phase_deg=take(phase, keep) if phase is not None else None,
             net=spec.net,
             component=spec.component,
+            pin=spec.pin,
             probed=spec.probed,
         )
         for spec, values, phase in found

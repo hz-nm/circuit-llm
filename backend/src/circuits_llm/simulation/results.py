@@ -6,6 +6,8 @@ from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from circuits_llm.domain import Issue
+
 MAX_POINTS_PER_TRACE: Final = 4000
 
 
@@ -27,6 +29,9 @@ class Trace(_Result):
     phase_deg: list[float] | None = None  # AC analysis only
     net: str | None = None  # the net a voltage trace belongs to (None for currents)
     component: str | None = None  # the component a current trace belongs to
+    # Current traces flow INTO this pin (the first catalog pin: '1', 'anode', '+',
+    # 'collector' or 'drain'), so a positive value means conventional current entering it.
+    pin: str | None = None
     # True for signals chosen to be plotted (circuit probes, or defaults when there are
     # none); False for extra node voltages and component currents recorded for the
     # live schematic and multimeter.
@@ -55,3 +60,6 @@ class SimulationResult(_Result):
     error: str | None = None  # concise, human/LLM-readable failure reason
     log: str = ""  # tail of simulator output, for debugging
     duration_ms: int = 0
+    # Post-simulation rating checks (overcurrent, overpower, supply range...); errors mean
+    # a real part would be destroyed or not work.
+    checks: list[Issue] = Field(default_factory=list[Issue])

@@ -191,6 +191,7 @@ def test_street_lamp_schmitt_hysteresis() -> None:
                 {
                     "id": "U1",
                     "kind": "schmitt_inverter",
+                    "model": "CD4000",  # 74HC would be over its 6 V supply limit at 12 V
                     "pins": {"a": "SENSE", "y": "GATE", "vdd": "VBAT", "vss": "GND"},
                 },
                 {
@@ -211,6 +212,7 @@ def test_street_lamp_schmitt_hysteresis() -> None:
         }
     )
     assert result.ok, result.error
+    assert not [c.message for c in result.checks if c.severity == "error"]  # bench-safe
     tran = _sweep(result, 1)
     time = tran.x.values
     lamp_current = next(t.values for t in tran.traces if t.component == "LA1")
