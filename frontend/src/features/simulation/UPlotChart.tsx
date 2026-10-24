@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { formatSI, formatTick } from "../../lib/si";
 import { useIsDark } from "../../ui/theme";
+import type { CursorStore } from "./live";
 
 /** Categorical series colours (fixed order; validated reference palette), light and dark steps. */
 const SERIES_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
@@ -35,6 +36,20 @@ export interface UPlotChartProps {
   syncKey?: string;
   /** Plain-number formatter for y (e.g. dB and degrees should not get SI prefixes). */
   plainY?: boolean;
+  /** Shared cursor (the schematic scrubber): drawn as a line here, and hovering the plot moves it. */
+  cursor?: CursorStore;
+}
+
+/** Index of the sample nearest to `value` in ascending `xs`. */
+function nearestIndex(xs: readonly number[], value: number): number {
+  let lo = 0;
+  let hi = xs.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (xs[mid]! <= value) lo = mid;
+    else hi = mid;
+  }
+  return Math.abs(xs[hi]! - value) < Math.abs(value - xs[lo]!) ? hi : lo;
 }
 
 function cssVar(name: string): string {
@@ -42,7 +57,8 @@ function cssVar(name: string): string {
 }
 
 export function UPlotChart(props: UPlotChartProps) {
-  const { title, x, xLabel, xUnit, logX, yLabel, yUnit, series, height = 240, syncKey, plainY = false } = props;
+  const { title, x, xLabel, xUnit, logX, yLabel, yUnit, series, height = 240, syncKey, plainY = false, cursor } = props;
+  const plotId = useId();
   const dark = useIsDark();
   const wrapRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
@@ -50,7 +66,9 @@ export function UPlotChart(props: UPlotChartProps) {
 
   const formatY = (v: number) => (plainY ? `${Number(v.toPrecision(4))} ${yUnit}` : formatSI(v, yUnit, 4));
 
-  // (Re)create the plot when the data, axes or theme change.
+  const seriesKey = series.map((s) => `${s.name}:${s.colorIndex}`).join("|");
+
+  // (Re)create the plot when the data, axes, series set or theme change.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -93,23 +111,59 @@ export function UPlotChart(props: UPlotChartProps) {
         })),
       ],
       hooks: {
-        setCursor: [(u) => setCursorIdx(u.cursor.idx ?? null)],
+        setCursor: [
+          (u) => {
+            const idx = u.cursor.idx ?? null;
+            if (cursor) {
+              // Hovering the plot drives the shared cursor; leaving it keeps the last position.
+              if (idx !== null) cursor.set(x[idx] ?? null, `plot:${plotId}`);
+            } else {
+              setCursorIdx(idx);
+            }
+          },
+        ],
       },
     };
     const data: uPlot.AlignedData = [x, ...series.map((s) => s.values)];
     const plot = new uPlot(opts, data, el);
     plotRef.current = plot;
 
-    const observer = new ResizeObserver(() => plot.setSize({ width: Math.max(200, el.clientWidth), height }));
+    // Shared-cursor line: a div inside uPlot's overlay, moved without redrawing the plot.
+    let line: HTMLDivElement | null = null;
+    const place = () => {
+      const value = cursor?.get();
+      if (!line) return;
+      if (value === null || value === undefined || x.length === 0) {
+        line.hidden = true;
+        return;
+      }
+      line.hidden = false;
+      line.style.left = `${plot.valToPos(value, "x")}px`;
+      setCursorIdx(nearestIndex(x, value));
+    };
+    let unsubscribe = () => {};
+    if (cursor) {
+      line = document.createElement("div");
+      line.className = "plot-cursor-line";
+      plot.over.appendChild(line);
+      unsubscribe = cursor.subscribe(place);
+      place();
+    }
+
+    const observer = new ResizeObserver(() => {
+      plot.setSize({ width: Math.max(200, el.clientWidth), height });
+      place();
+    });
     observer.observe(el);
     return () => {
+      unsubscribe();
       observer.disconnect();
       plot.destroy();
       plotRef.current = null;
     };
     // Visibility is applied separately below so toggling a trace doesn't rebuild the chart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [x, series.length, series.map((s) => s.name).join("|"), xLabel, xUnit, logX, yLabel, yUnit, height, syncKey, dark, plainY]);
+  }, [x, seriesKey, xLabel, xUnit, logX, yLabel, yUnit, height, syncKey, dark, plainY, cursor]);
 
   useEffect(() => {
     const plot = plotRef.current;

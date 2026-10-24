@@ -167,3 +167,13 @@ body {
   max-width: 100%;
   height: auto;
 }
+
+/* Shared simulation cursor drawn over uPlot charts. */
+.plot-cursor-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px solid var(--c-accent);
+  pointer-events: none;
+}

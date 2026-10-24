@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap, unwrapOrNull } from "./client";
-import type { Circuit, EndpointIn, ProjectDetail, SimulationResult, VersionOut } from "./types";
+import type { Circuit, EndpointIn, ProjectDetail, VersionOut } from "./types";
 
 export const keys = {
   health: ["health"] as const,
@@ -188,18 +188,5 @@ export function useSimulation(projectId: string, number: number) {
         }),
       ),
     staleTime: Infinity,
-  });
-}
-
-export function useRunSimulation(projectId: string, number: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      unwrap(
-        api.POST("/api/projects/{project_id}/versions/{number}/simulate", {
-          params: { path: { project_id: projectId, number } },
-        }),
-      ),
-    onSuccess: (result: SimulationResult) => qc.setQueryData(keys.simulation(projectId, number), result),
   });
 }

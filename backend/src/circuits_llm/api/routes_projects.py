@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
-from circuits_llm.domain import Circuit, Issue, Severity, check_circuit, to_mermaid
+from circuits_llm.domain import Circuit, Issue, Severity, Transient, check_circuit, to_mermaid
 from circuits_llm.llm import run_design
 from circuits_llm.llm.contracts import (
     MAX_HISTORY_TURNS,
@@ -29,6 +29,7 @@ from .schemas import (
     ProjectCreate,
     ProjectDetail,
     ProjectRename,
+    SimulateOptions,
     TurnSaved,
     VersionOut,
 )
@@ -117,19 +118,46 @@ def get_simulation(project_id: str, number: int, services: ServicesDep) -> Simul
 
 
 @router.post("/{project_id}/versions/{number}/simulate")
-async def simulate_version(project_id: str, number: int, services: ServicesDep) -> SimulationResult:
+async def simulate_version(
+    project_id: str,
+    number: int,
+    services: ServicesDep,
+    options: SimulateOptions | None = None,
+) -> SimulationResult:
+    """Simulate a version, optionally overriding the transient stop time and step.
+
+    Overrides apply to this run only; the stored circuit is unchanged.
+    """
     simulator = _require_simulator(services)
     record = await asyncio.to_thread(services.store.get_version, project_id, number)
-    errors = [i for i in check_circuit(record.circuit) if i.severity is Severity.ERROR]
+    circuit = with_transient(record.circuit, options) if options else record.circuit
+    errors = [i for i in check_circuit(circuit) if i.severity is Severity.ERROR]
     if errors:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "fix the circuit's ERC errors before simulating: "
             + "; ".join(issue.message for issue in errors),
         )
-    result = await simulator.simulate(record.circuit)
+    result = await simulator.simulate(circuit)
     await asyncio.to_thread(services.store.save_simulation, project_id, number, result)
     return result
+
+
+def with_transient(circuit: Circuit, options: SimulateOptions) -> Circuit:
+    """Apply run-bar overrides to the circuit's transient analysis, adding one if needed."""
+    if options.stop_time is None and options.step_time is None:
+        return circuit
+    existing = next((a for a in circuit.analyses if isinstance(a, Transient)), None)
+    stop = options.stop_time or (existing.stop_time if existing else None)
+    if stop is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "this circuit has no transient analysis; give a stop time to add one",
+        )
+    step = options.step_time or (existing.step_time if existing else None)
+    transient = Transient(stop_time=stop, step_time=step)
+    others = [a for a in circuit.analyses if not isinstance(a, Transient)]
+    return circuit.model_copy(update={"analyses": [*others, transient]})
 
 
 @router.get(

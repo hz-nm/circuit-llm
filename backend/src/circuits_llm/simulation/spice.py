@@ -44,6 +44,7 @@ from .library import (
 
 SPICE_GROUND: Final = "0"
 MAX_DEFAULT_TRACES: Final = 8
+MAX_NODE_TRACES: Final = 64  # node voltages recorded for schematic animation
 # Transient output is interpolated onto a grid of at most this many points (the
 # solver's maximum internal step is still the requested step_time).
 MAX_TRAN_OUTPUT_POINTS: Final = 100_000
@@ -85,6 +86,12 @@ class TraceSpec:
     vector: str  # lower-case ngspice vector name, e.g. "v(out)" or "i(vsense_r1)"
     name: str  # display name, e.g. "V(OUT)" or "I(R1)"
     unit: str  # "V" or "A"
+    net: str | None = None  # set for node-voltage traces
+    probed: bool = True  # False: recorded only so every net can be animated
+
+
+def _voltage_trace(net: str, *, probed: bool) -> TraceSpec:
+    return TraceSpec(f"v({net.lower()})", f"V({net})", "V", net=net, probed=probed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,24 +215,28 @@ def _current_vector(component: Component, names: _Names) -> str:
 
 
 def _traces(circuit: Circuit, names: _Names) -> tuple[TraceSpec, ...]:
-    nets = circuit.nets()
-    if not circuit.probes:
-        defaults = [net for net in nets if net != GROUND_NET][:MAX_DEFAULT_TRACES]
-        return tuple(TraceSpec(f"v({net.lower()})", f"V({net})", "V") for net in defaults)
-
+    """Probed signals first, then every other node voltage (bounded) for animation."""
+    nets = [net for net in circuit.nets() if net != GROUND_NET]
     traces: dict[str, TraceSpec] = {}
+    if not circuit.probes:
+        for net in nets[:MAX_DEFAULT_TRACES]:
+            traces[net] = _voltage_trace(net, probed=True)
+
     for probe in circuit.probes:
         if probe.kind == "voltage":
             net = next((n for n in nets if n.lower() == probe.target.lower()), None)
-            if net is None:
+            if net is None and probe.target.lower() != GROUND_NET.lower():
                 raise SpiceEmissionError(f"voltage probe target '{probe.target}' is not a net")
-            if net != GROUND_NET:
-                traces.setdefault(net, TraceSpec(f"v({net.lower()})", f"V({net})", "V"))
+            if net is not None:
+                traces.setdefault(net, _voltage_trace(net, probed=True))
             continue
         component = circuit.component(probe.target)
         assert component is not None  # validated by _current_probe_targets
         vector = _current_vector(component, names)
         traces.setdefault(vector, TraceSpec(vector, f"I({component.id})", "A"))
+
+    for net in nets[:MAX_NODE_TRACES]:
+        traces.setdefault(net, _voltage_trace(net, probed=False))
     return tuple(traces.values())
 
 

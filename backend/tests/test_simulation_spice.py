@@ -33,7 +33,8 @@ def test_led_circuit_deck(led_circuit: Circuit) -> None:
     assert "D_1N4148" not in deck.text
     assert [p.command for p in deck.analyses] == ["op"]
     assert deck.branch_currents == {"i(v1)": "V1", "i(vsense_r1)": "R1"}
-    assert [t.name for t in deck.traces] == ["V(N1)", "I(R1)"]
+    assert [t.name for t in deck.traces if t.probed] == ["V(N1)", "I(R1)"]
+    assert [t.net for t in deck.traces if not t.probed] == ["VCC"]  # recorded for animation
 
 
 def test_opamp_variant_follows_supply_pins() -> None:

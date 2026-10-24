@@ -17,11 +17,16 @@ export interface Wire {
 
 export interface NetLabel {
   net: string;
-  text: string;
+  /** Display name (null for auto-named nets, which only show a voltage). */
+  name: string | null;
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+export interface Junction extends Point {
+  net: string;
 }
 
 export interface Schematic {
@@ -29,7 +34,7 @@ export interface Schematic {
   height: number;
   components: LaidOutComponent[];
   wires: Wire[];
-  junctions: Point[];
+  junctions: Junction[];
   netLabels: NetLabel[];
 }
 
@@ -81,7 +86,7 @@ export async function layoutCircuit(
     for (const label of edge.labels ?? []) {
       netLabels.push({
         net,
-        text: label.text ?? net,
+        name: label.text ? label.text : null,
         x: label.x ?? 0,
         y: label.y ?? 0,
         width: label.width ?? 0,
@@ -113,7 +118,7 @@ const EPS = 0.5;
  * where the net branches, which is where a schematic draws a dot. Crossing wires
  * of *different* nets never produce a dot because nets are checked separately.
  */
-export function findJunctions(wires: readonly Wire[]): Point[] {
+export function findJunctions(wires: readonly Wire[]): Junction[] {
   const byNet = new Map<string, [Point, Point][]>();
   for (const wire of wires) {
     const segments = byNet.get(wire.net) ?? [];
@@ -125,9 +130,9 @@ export function findJunctions(wires: readonly Wire[]): Point[] {
     byNet.set(wire.net, segments);
   }
 
-  const junctions: Point[] = [];
+  const junctions: Junction[] = [];
   const seen = new Set<string>();
-  for (const segments of byNet.values()) {
+  for (const [net, segments] of byNet) {
     const candidates = segments.flatMap(([a, b]) => [a, b]);
     for (const p of candidates) {
       const key = `${Math.round(p.x)},${Math.round(p.y)}`;
@@ -136,7 +141,7 @@ export function findJunctions(wires: readonly Wire[]): Point[] {
       for (const [a, b] of segments) for (const d of directionsFrom(p, a, b)) directions.add(d);
       if (directions.size >= 3) {
         seen.add(key);
-        junctions.push({ x: p.x, y: p.y });
+        junctions.push({ x: p.x, y: p.y, net });
       }
     }
   }

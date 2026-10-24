@@ -162,6 +162,13 @@ class CircuitIn(_Schema):
     circuit: Circuit
 
 
+class SimulateOptions(_Schema):
+    """Run-bar overrides for a transient simulation; omitted fields keep the circuit's own."""
+
+    stop_time: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
+    step_time: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
+
+
 # --------------------------------------------------------------------------- streaming
 
 

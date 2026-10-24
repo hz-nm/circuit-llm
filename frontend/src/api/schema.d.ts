@@ -225,7 +225,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Simulate Version */
+        /**
+         * Simulate Version
+         * @description Simulate a version, optionally overriding the transient stop time and step.
+         *
+         *     Overrides apply to this run only; the stored circuit is unchanged.
+         */
         post: operations["simulate_version_api_projects__project_id__versions__number__simulate_post"];
         delete?: never;
         options?: never;
@@ -682,6 +687,16 @@ export interface components {
          * @enum {string}
          */
         Severity: "error" | "warning";
+        /**
+         * SimulateOptions
+         * @description Run-bar overrides for a transient simulation; omitted fields keep the circuit's own.
+         */
+        SimulateOptions: {
+            /** Stop Time */
+            stop_time?: number | null;
+            /** Step Time */
+            step_time?: number | null;
+        };
         /** SimulationResult */
         SimulationResult: {
             /** Ok */
@@ -751,6 +766,13 @@ export interface components {
             values: number[];
             /** Phase Deg */
             phase_deg?: number[] | null;
+            /** Net */
+            net?: string | null;
+            /**
+             * Probed
+             * @default true
+             */
+            probed: boolean;
         };
         /** Transient */
         Transient: {
@@ -1424,7 +1446,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SimulateOptions"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

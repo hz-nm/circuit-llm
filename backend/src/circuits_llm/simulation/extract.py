@@ -10,7 +10,7 @@ from circuits_llm.domain import AcSweep, DcSweep, OperatingPoint, Transient
 from .downsample import decimation_indices, take
 from .raw import RawPlot
 from .results import MAX_POINTS_PER_TRACE, Axis, OperatingPointResult, SweepResult, Trace
-from .spice import PlannedAnalysis, SpiceDeck
+from .spice import PlannedAnalysis, SpiceDeck, TraceSpec
 
 # A transient that stops short of stop_time by more than this fraction is truncated.
 TRAN_END_TOLERANCE: Final = 1e-6
@@ -66,27 +66,32 @@ def sweep(plot: RawPlot, planned: PlannedAnalysis, deck: SpiceDeck) -> SweepResu
     """Build a sweep result, decimating to ``MAX_POINTS_PER_TRACE`` points."""
     _check_plot(plot, planned)
     x_values = list(plot.real[0])
-    found: list[tuple[str, str, list[float], list[float] | None]] = []
+    found: list[tuple[TraceSpec, list[float], list[float] | None]] = []
     for spec in deck.traces:
         column = plot.index(spec.vector)
         if column is None:
             continue
         if plot.is_complex:
             magnitude, phase = _magnitude_phase(plot, column)
-            found.append((spec.name, spec.unit, magnitude, phase))
+            found.append((spec, magnitude, phase))
         else:
-            found.append((spec.name, spec.unit, list(plot.real[column]), None))
+            found.append((spec, list(plot.real[column]), None))
 
-    series = [values for _, _, values, _ in found] or [x_values]
+    # Decimate on the probed signals so their spikes survive; the extra node voltages
+    # only drive the schematic animation and follow the same time grid.
+    probed = [values for spec, values, _ in found if spec.probed]
+    series = probed or [values for _, values, _ in found] or [x_values]
     keep = decimation_indices(series, MAX_POINTS_PER_TRACE)
     traces = [
         Trace(
-            name=name,
-            unit=unit,
+            name=spec.name,
+            unit=spec.unit,
             values=take(values, keep),
             phase_deg=take(phase, keep) if phase is not None else None,
+            net=spec.net,
+            probed=spec.probed,
         )
-        for name, unit, values, phase in found
+        for spec, values, phase in found
     ]
     axis = Axis(
         name=planned.axis_name,

@@ -10,7 +10,7 @@ const TABS: readonly { id: TabId; label: string }[] = [
 ];
 
 /** WAI-ARIA tabs: arrow keys / Home / End move between tabs. */
-export function Tabs({ active, onChange }: { active: TabId; onChange: (tab: TabId) => void }) {
+export function Tabs({ active, onChange, highlight = null }: { active: TabId; onChange: (tab: TabId) => void; highlight?: TabId | null }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const onKeyDown = (event: KeyboardEvent, index: number) => {
@@ -50,6 +50,12 @@ export function Tabs({ active, onChange }: { active: TabId; onChange: (tab: TabI
             }`}
           >
             {tab.label}
+            {highlight === tab.id && (
+              <>
+                <span aria-hidden="true" className="ml-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-accent align-middle" />
+                <span className="sr-only"> (new results)</span>
+              </>
+            )}
           </button>
         );
       })}

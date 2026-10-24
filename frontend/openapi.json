@@ -688,6 +688,7 @@
           "projects"
         ],
         "summary": "Simulate Version",
+        "description": "Simulate a version, optionally overriding the transient stop time and step.\n\nOverrides apply to this run only; the stored circuit is unchanged.",
         "operationId": "simulate_version_api_projects__project_id__versions__number__simulate_post",
         "parameters": [
           {
@@ -709,6 +710,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SimulateOptions"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Options"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1949,6 +1967,38 @@
         ],
         "title": "Severity"
       },
+      "SimulateOptions": {
+        "properties": {
+          "stop_time": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Time"
+          },
+          "step_time": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SimulateOptions",
+        "description": "Run-bar overrides for a transient simulation; omitted fields keep the circuit's own."
+      },
       "SimulationResult": {
         "properties": {
           "ok": {
@@ -2115,6 +2165,22 @@
               }
             ],
             "title": "Phase Deg"
+          },
+          "net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net"
+          },
+          "probed": {
+            "type": "boolean",
+            "title": "Probed",
+            "default": true
           }
         },
         "additionalProperties": false,

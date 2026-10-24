@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MOCK_CIRCUITS, dcSweepResult, failedResult, ledCircuit, ledOpResult, opampTranResult, rcAcResult } from "../mocks/circuits";
+import { MOCK_CIRCUITS, dcSweepResult, failedResult, ledOpResult, opampTranResult, rcAcResult } from "../mocks/circuits";
 import { SchematicView } from "../features/schematic/SchematicView";
 import { SimulationResults } from "../features/simulation/SimulationResults";
 
@@ -7,8 +7,6 @@ import { SimulationResults } from "../features/simulation/SimulationResults";
 export default function DevGallery() {
   const [index, setIndex] = useState(0);
   const circuit = MOCK_CIRCUITS[index]!;
-  const op = ledOpResult.analyses?.[0];
-  const voltages = circuit === ledCircuit && op?.type === "op" ? op.node_voltages : null;
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
@@ -25,7 +23,7 @@ export default function DevGallery() {
         ))}
       </div>
       <div className="h-[520px] shrink-0 border-b border-line">
-        <SchematicView circuit={circuit} nodeVoltages={voltages} />
+        <SchematicView circuit={circuit} />
       </div>
       <div className="space-y-4 p-4">
         {[ledOpResult, rcAcResult, opampTranResult, dcSweepResult, failedResult].map((r, i) => (

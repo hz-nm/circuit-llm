@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { errorMessage } from "../../api/client";
-import { useRestoreVersion, useSimulation, useVersion } from "../../api/queries";
+import { useRestoreVersion, useVersion } from "../../api/queries";
 import type { ProjectDetail, VersionOut } from "../../api/types";
 import { Button } from "../../ui/Button";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { MermaidView } from "../mermaid/MermaidView";
 import { NetlistEditor } from "../netlist/NetlistEditor";
 import { SchematicView } from "../schematic/SchematicView";
+import { RunBar } from "../simulation/RunBar";
+import { SimulationSessionProvider, useSimulationSession } from "../simulation/session";
 import { SimulationView } from "../simulation/SimulationView";
 import { IssuesPanel } from "./IssuesPanel";
 import { Tabs, type TabId } from "./Tabs";
@@ -58,25 +60,57 @@ export function Workspace({ projectId, detail, selected, simulationAvailable, on
         </h2>
         {data && <IssuesPanel issues={data.issues} />}
       </div>
-      <Tabs active={tab} onChange={setTab} />
-      <div
-        role="tabpanel"
-        id={`panel-${tab}`}
-        aria-labelledby={`tab-${tab}`}
-        className="relative min-h-0 flex-1 overflow-hidden"
-      >
-        <ErrorBoundary resetKey={`${tab}:${selected}`} label="This view failed to render.">
-          {version.isError && <p className="p-4 text-sm text-danger">{errorMessage(version.error)}</p>}
-          {version.isPending && <p className="p-4 text-sm text-muted">Loading version {selected}…</p>}
-          {data && (
-            <TabContent
-              tab={tab}
-              projectId={projectId}
-              version={data}
-              simulationAvailable={simulationAvailable}
-              onSaved={(n) => onSelectVersion(n)}
-            />
-          )}
+      {version.isError && <p className="p-4 text-sm text-danger">{errorMessage(version.error)}</p>}
+      {version.isPending && <p className="p-4 text-sm text-muted">Loading version {selected}…</p>}
+      {data && (
+        <SimulationSessionProvider key={`${projectId}:${data.number}`} projectId={projectId} version={data} available={simulationAvailable}>
+          <RunBar />
+          <WorkspaceTabs tab={tab} setTab={setTab} projectId={projectId} version={data} onSaved={(n) => onSelectVersion(n)} />
+        </SimulationSessionProvider>
+      )}
+    </>
+  );
+}
+
+/** Tabs + panel; after a run, results are surfaced without the user hunting for them. */
+function WorkspaceTabs({
+  tab,
+  setTab,
+  projectId,
+  version,
+  onSaved,
+}: {
+  tab: TabId;
+  setTab: (tab: TabId) => void;
+  projectId: string;
+  version: VersionOut;
+  onSaved: (n: number) => void;
+}) {
+  const { lastRun } = useSimulationSession();
+  const [unseen, setUnseen] = useState(false);
+
+  // A manual run from Mermaid/Netlist jumps to the plots; an auto-run only highlights the tab.
+  // On the Schematic tab the live schematic lights up by itself.
+  useEffect(() => {
+    if (lastRun.count === 0) return;
+    if (tab === "mermaid" || tab === "netlist") {
+      if (lastRun.manual) setTab("simulation");
+      else setUnseen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to new runs only
+  }, [lastRun]);
+
+  const select = (next: TabId) => {
+    if (next === "simulation") setUnseen(false);
+    setTab(next);
+  };
+
+  return (
+    <>
+      <Tabs active={tab} onChange={select} highlight={unseen && tab !== "simulation" ? "simulation" : null} />
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="relative min-h-0 flex-1 overflow-hidden">
+        <ErrorBoundary resetKey={`${tab}:${version.number}`} label="This view failed to render.">
+          <TabContent tab={tab} projectId={projectId} version={version} onSaved={onSaved} />
         </ErrorBoundary>
       </div>
     </>
@@ -87,27 +121,26 @@ function TabContent({
   tab,
   projectId,
   version,
-  simulationAvailable,
   onSaved,
 }: {
   tab: TabId;
   projectId: string;
   version: VersionOut;
-  simulationAvailable: boolean;
   onSaved: (n: number) => void;
 }) {
-  const simulation = useSimulation(projectId, version.number);
-  const op = simulation.data?.ok ? simulation.data.analyses?.find((a) => a.type === "op") : undefined;
-  const nodeVoltages = op && op.type === "op" ? op.node_voltages : null;
-
   switch (tab) {
     case "schematic":
-      return <SchematicView circuit={version.circuit} nodeVoltages={nodeVoltages} issues={version.issues} />;
+      return <LiveSchematic version={version} />;
     case "mermaid":
       return <MermaidView source={version.mermaid} />;
     case "netlist":
       return <NetlistEditor key={version.number} projectId={projectId} version={version} onSaved={onSaved} />;
     case "simulation":
-      return <SimulationView projectId={projectId} version={version} available={simulationAvailable} />;
+      return <SimulationView />;
   }
+}
+
+function LiveSchematic({ version }: { version: VersionOut }) {
+  const session = useSimulationSession();
+  return <SchematicView circuit={version.circuit} issues={version.issues} session={session} />;
 }

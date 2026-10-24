@@ -25,6 +25,10 @@ class Trace(_Result):
     unit: str  # "V" or "A"
     values: list[float]  # real values; for AC analysis the linear magnitude
     phase_deg: list[float] | None = None  # AC analysis only
+    net: str | None = None  # the net a voltage trace belongs to (None for currents)
+    # True for signals chosen to be plotted (circuit probes, or defaults when there are
+    # none); False for the extra node voltages recorded for schematic animation.
+    probed: bool = True
 
 
 class OperatingPointResult(_Result):

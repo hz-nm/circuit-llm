@@ -32,7 +32,7 @@ export interface Box {
 /** Something drawn at a pin in addition to the symbol (all coordinates node-local). */
 export type PinAttachment =
   | { type: "ground"; wire: Point[]; glyph: Point; up: boolean }
-  | { type: "flag"; wire: Point[]; text: string; anchor: Point; align: "start" | "middle" | "end" };
+  | { type: "flag"; wire: Point[]; net: string; name: string | null; width: number; anchor: Point; align: "start" | "middle" | "end" };
 
 export interface PlacedPort {
   pin: string;
@@ -72,9 +72,11 @@ export interface ElkConversion {
 }
 
 export interface ConversionOptions {
-  /** Node voltages from an operating-point result, keyed by net name (case-insensitive). */
-  nodeVoltages?: Record<string, number> | null;
-  formatVoltage?: (volts: number) => string;
+  /**
+   * Reserve room in every net label for a live voltage readout. The values are
+   * drawn at render time, so animating them never needs a new layout.
+   */
+  reserveVoltages?: boolean;
 }
 
 // ---------------------------------------------------------------------------- geometry
@@ -177,19 +179,19 @@ function groundAttachment(p: Point, side: Side): PinAttachment {
   }
 }
 
-function flagAttachment(p: Point, side: Side, text: string): PinAttachment {
+function flagAttachment(p: Point, side: Side, net: string, name: string | null, width: number): PinAttachment {
   const out = OUTWARD[side];
   const end = { x: p.x + out.x * FLAG_LEAD, y: p.y + out.y * FLAG_LEAD };
   const gap = 3;
   switch (side) {
     case "EAST":
-      return { type: "flag", wire: [p, end], text, anchor: { x: end.x + gap, y: end.y }, align: "start" };
+      return { type: "flag", wire: [p, end], net, name, width, anchor: { x: end.x + gap, y: end.y }, align: "start" };
     case "WEST":
-      return { type: "flag", wire: [p, end], text, anchor: { x: end.x - gap, y: end.y }, align: "end" };
+      return { type: "flag", wire: [p, end], net, name, width, anchor: { x: end.x - gap, y: end.y }, align: "end" };
     case "NORTH":
-      return { type: "flag", wire: [p, end], text, anchor: { x: end.x, y: end.y - 8 }, align: "middle" };
+      return { type: "flag", wire: [p, end], net, name, width, anchor: { x: end.x, y: end.y - 8 }, align: "middle" };
     case "SOUTH":
-      return { type: "flag", wire: [p, end], text, anchor: { x: end.x, y: end.y + 8 }, align: "middle" };
+      return { type: "flag", wire: [p, end], net, name, width, anchor: { x: end.x, y: end.y + 8 }, align: "middle" };
   }
 }
 
@@ -199,26 +201,27 @@ function attachmentBox(a: PinAttachment): Point[] {
     const dy = a.up ? -8 : 8;
     return [...a.wire, { x: g.x - 8, y: g.y }, { x: g.x + 8, y: g.y + dy }];
   }
-  const w = textWidth(a.text);
+  const w = a.width;
   const left = a.align === "start" ? a.anchor.x : a.align === "end" ? a.anchor.x - w : a.anchor.x - w / 2;
   return [...a.wire, { x: left, y: a.anchor.y - LINE_HEIGHT / 2 }, { x: left + w, y: a.anchor.y + LINE_HEIGHT / 2 }];
 }
 
 // ---------------------------------------------------------------------------- placement
 
-function voltageText(net: string, options: ConversionOptions): string | null {
-  const voltages = options.nodeVoltages;
-  if (!voltages || net === GROUND) return null;
-  const key = Object.keys(voltages).find((k) => k.toLowerCase() === net.toLowerCase());
-  if (key === undefined) return null;
-  const format = options.formatVoltage ?? ((v: number) => `${v.toPrecision(3)} V`);
-  return format(voltages[key]!);
+/** Widest voltage readout we reserve room for, e.g. "-888.8 mV". */
+export const VOLTAGE_PLACEHOLDER = "-888.8 mV";
+
+/** Compose a net label from its display name and (optional) live voltage text. */
+export function composeNetLabel(name: string | null, voltage: string | null): string {
+  return [name, voltage].filter((p): p is string => p !== null).join(" = ");
 }
 
-/** Text to show for a net (name and/or operating-point voltage), or null for none. */
-export function netLabelText(net: string, options: ConversionOptions): string | null {
-  const parts = [isNamedNet(net) ? net : null, voltageText(net, options)].filter((p): p is string => p !== null);
-  return parts.length > 0 ? parts.join(" = ") : null;
+/** Width-defining text for a net label, or null when the net gets no label. */
+export function netLabelSizing(net: string, options: ConversionOptions): { name: string | null; text: string } | null {
+  const name = isNamedNet(net) ? net : null;
+  const voltage = options.reserveVoltages && net !== GROUND ? VOLTAGE_PLACEHOLDER : null;
+  if (!name && !voltage) return null;
+  return { name, text: composeNetLabel(name, voltage) };
 }
 
 export function placeComponent(
@@ -246,8 +249,8 @@ export function placeComponent(
     if (net === GROUND) {
       attachment = groundAttachment(at, side);
     } else if ((netSizes.get(net) ?? 0) < 2) {
-      const text = netLabelText(net, options);
-      attachment = text ? flagAttachment(at, side, text) : null;
+      const sizing = netLabelSizing(net, options);
+      attachment = sizing ? flagAttachment(at, side, net, sizing.name, textWidth(sizing.text)) : null;
     } else {
       routed.push({ pin: pin.name, net, side, at });
     }
@@ -362,7 +365,7 @@ export function circuitToElk(circuit: Circuit, options: ConversionOptions = {}):
       (a, b) => SOURCE_RANK[a.port.side] - SOURCE_RANK[b.port.side] || a.order - b.order,
     );
     const root = sorted[0]!;
-    const text = netLabelText(net, options);
+    const sizing = netLabelSizing(net, options);
     sorted.slice(1).forEach((target, i) => {
       const id = `net:${net}:${i}`;
       edges.push({
@@ -370,8 +373,8 @@ export function circuitToElk(circuit: Circuit, options: ConversionOptions = {}):
         sources: [portId(root.componentId, root.port.pin)],
         targets: [portId(target.componentId, target.port.pin)],
         labels:
-          i === 0 && text
-            ? [{ id: `${id}:label`, text, width: textWidth(text), height: LINE_HEIGHT }]
+          i === 0 && sizing
+            ? [{ id: `${id}:label`, text: sizing.name ?? "", width: textWidth(sizing.text), height: LINE_HEIGHT }]
             : undefined,
       });
       edgeMeta.push({ id, net });

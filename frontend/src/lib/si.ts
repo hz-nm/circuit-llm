@@ -35,3 +35,38 @@ export function formatTick(value: number, unit = ""): string {
   if (value === 0) return `0${unit}`;
   return formatSI(value, unit, 3).replace(" ", "");
 }
+
+const ENG_PREFIX: Record<string, number> = {
+  T: 1e12,
+  G: 1e9,
+  M: 1e6,
+  k: 1e3,
+  K: 1e3,
+  m: 1e-3,
+  u: 1e-6,
+  µ: 1e-6,
+  μ: 1e-6,
+  n: 1e-9,
+  p: 1e-12,
+  f: 1e-15,
+};
+
+/**
+ * Parse engineering notation such as "5m", "10u", "2.5 ms", "1e-3" or "1meg"
+ * (an optional trailing unit is ignored). Returns null for anything else.
+ */
+export function parseEng(text: string): number | null {
+  const match = /^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*((?:[mM][eE][gG])|[TGMkKmuµμnpf])?\s*([a-zA-Z]{0,3})\s*$/.exec(text);
+  if (!match) return null;
+  const [, number, prefix = "", unit = ""] = match;
+  // "1s" is a unit, but "1m" alone is milli; reject an unknown unit glued to nothing.
+  if (unit && !/^(s|sec|v|a|hz)$/i.test(unit)) return null;
+  const multiplier = prefix.toLowerCase() === "meg" ? 1e6 : prefix ? ENG_PREFIX[prefix]! : 1;
+  const value = Number(number) * multiplier;
+  return Number.isFinite(value) ? value : null;
+}
+
+/** Compact, typeable engineering text for an input field, e.g. 0.003 → "3m", 1e-5 → "10u". */
+export function formatEng(value: number): string {
+  return formatSI(value, "", 4).replace(" ", "").replace("µ", "u");
+}

@@ -3,11 +3,12 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { MOCK_CIRCUITS, ledCircuit, opampAmplifier, rcLowPass } from "../../mocks/circuits";
+import { MOCK_CIRCUITS, ledCircuit, opampAmplifier, rcLowPass, transistorSwitch } from "../../mocks/circuits";
 import { findJunctions, layoutCircuit } from "./layout";
 import { SCHEMATIC_CSS, SchematicContent } from "./SchematicSvg";
 import { SYMBOLS } from "./symbols";
 import { circuitToElk } from "./toElk";
+import { voltageColor } from "../simulation/live";
 
 describe("circuitToElk", () => {
   it("makes one node per component with fixed-position ports for routed pins", () => {
@@ -59,10 +60,15 @@ describe("circuitToElk", () => {
     expect(u1.ports?.map((p) => p.id).sort()).toEqual(["U1::in+", "U1::in-", "U1::out"]);
   });
 
-  it("annotates nets with operating-point voltages when given", () => {
-    const { graph } = circuitToElk(ledCircuit, { nodeVoltages: { vcc: 9, LED_A: 1.83 } });
-    const labels = (graph.edges ?? []).flatMap((e) => e.labels ?? []).map((l) => l.text);
-    expect(labels).toEqual(expect.arrayContaining(["VCC = 9.00 V", "LED_A = 1.83 V"]));
+  it("reserves label room for live voltages so animating never needs a new layout", () => {
+    const plain = circuitToElk(transistorSwitch).graph.edges ?? [];
+    const live = circuitToElk(transistorSwitch, { reserveVoltages: true }).graph.edges ?? [];
+    const width = (edges: typeof plain, name: string) => edges.flatMap((e) => e.labels ?? []).find((l) => l.text === name)?.width ?? 0;
+    expect(width(live, "CTL")).toBeGreaterThan(width(plain, "CTL"));
+    // Auto-named nets (N001) get a voltage-only label when reserving, none otherwise.
+    const n001 = (edges: typeof plain) => edges.filter((e) => e.id.startsWith("net:N001:")).flatMap((e) => e.labels ?? []);
+    expect(n001(plain)).toHaveLength(0);
+    expect(n001(live)).toHaveLength(1);
   });
 
   it("has a symbol for every kind whose pins sit on the symbol's box edge", () => {
@@ -82,7 +88,7 @@ describe("findJunctions", () => {
       { id: "b", net: "N", points: [{ x: 0, y: 0 }, { x: 40, y: 0 }] },
       { id: "c", net: "M", points: [{ x: 30, y: -10 }, { x: 30, y: 10 }] },
     ];
-    expect(findJunctions(wires)).toEqual([{ x: 20, y: 0 }]);
+    expect(findJunctions(wires)).toEqual([{ x: 20, y: 0, net: "N" }]);
   });
 });
 
@@ -91,9 +97,7 @@ describe("layoutCircuit", () => {
     const elk = new ELK();
     const outDir = process.env.SCHEMATIC_OUT;
     for (const circuit of MOCK_CIRCUITS) {
-      const schematic = await layoutCircuit(elk, circuit, {
-        nodeVoltages: circuit === ledCircuit ? { VCC: 9, LED_A: 1.83 } : null,
-      });
+      const schematic = await layoutCircuit(elk, circuit, { reserveVoltages: circuit === ledCircuit });
       expect(schematic.components).toHaveLength(circuit.components.length);
       expect(schematic.wires.length).toBeGreaterThan(0);
       const boxes = schematic.components.map((c) => ({ x: c.x, y: c.y, w: c.placed.width, h: c.placed.height }));
@@ -112,7 +116,20 @@ describe("layoutCircuit", () => {
           <svg xmlns="http://www.w3.org/2000/svg" width={schematic.width} height={schematic.height} viewBox={`0 0 ${schematic.width} ${schematic.height}`}>
             <style>{SCHEMATIC_CSS}</style>
             <rect width="100%" height="100%" fill="white" />
-            <SchematicContent schematic={schematic} />
+            <SchematicContent
+              schematic={schematic}
+              live={
+                circuit === ledCircuit
+                  ? {
+                      voltages: new Map([["VCC", 9], ["LED_A", 1.83]]),
+                      colorOf: (v) => voltageColor(v, 9, false),
+                      formatVoltage: (v) => `${v.toFixed(2)} V`,
+                      probed: new Set(["LED_A"]),
+                      probeColor: () => "#eb6834",
+                    }
+                  : null
+              }
+            />
           </svg>,
         );
         writeFileSync(join(outDir, `${circuit.title.replace(/\W+/g, "_")}.svg`), svg);

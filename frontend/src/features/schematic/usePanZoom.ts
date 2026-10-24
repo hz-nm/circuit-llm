@@ -16,7 +16,8 @@ const clamp = (k: number) => Math.min(MAX_K, Math.max(MIN_K, k));
  */
 export function usePanZoom(containerRef: RefObject<HTMLElement>, content: { width: number; height: number } | null) {
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
-  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
+  const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
+  const lastGestureDragged = useRef(false);
 
   const fit = useCallback(() => {
     const el = containerRef.current;
@@ -62,15 +63,21 @@ export function usePanZoom(containerRef: RefObject<HTMLElement>, content: { widt
 
   const onPointerDown = (event: ReactPointerEvent) => {
     if (event.button !== 0) return;
-    drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
-    (event.currentTarget as Element).setPointerCapture(event.pointerId);
+    // Capture only once the pointer really moves, so a plain click still reaches wires.
+    drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    lastGestureDragged.current = false;
   };
   const onPointerMove = (event: ReactPointerEvent) => {
     const d = drag.current;
     if (!d || d.id !== event.pointerId) return;
     const dx = event.clientX - d.x;
     const dy = event.clientY - d.y;
-    drag.current = { ...d, x: event.clientX, y: event.clientY };
+    if (!d.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < 4) return;
+      (event.currentTarget as Element).setPointerCapture(event.pointerId);
+      lastGestureDragged.current = true;
+    }
+    drag.current = { ...d, x: event.clientX, y: event.clientY, moved: true };
     setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
   };
   const onPointerUp = (event: ReactPointerEvent) => {
@@ -101,6 +108,8 @@ export function usePanZoom(containerRef: RefObject<HTMLElement>, content: { widt
     fit,
     zoomIn: () => zoomAt(1.25),
     zoomOut: () => zoomAt(0.8),
+    /** True if the gesture that just ended was a pan (so its click should be ignored). */
+    didDrag: () => lastGestureDragged.current,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onKeyDown },
   };
 }

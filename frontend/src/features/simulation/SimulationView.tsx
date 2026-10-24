@@ -1,56 +1,30 @@
-import { errorMessage } from "../../api/client";
-import { useRunSimulation, useSimulation } from "../../api/queries";
-import type { SimulationResult, VersionOut } from "../../api/types";
-import { Button } from "../../ui/Button";
-import { SimulationResults } from "./SimulationResults";
+import { useMemo } from "react";
+import { useSimulationSession } from "./session";
+import { SimulationResults, type PlotLinks } from "./SimulationResults";
 
-interface Props {
-  projectId: string;
-  version: VersionOut;
-  available: boolean;
-}
-
-export function SimulationView({ projectId, version, available }: Props) {
-  const cached = useSimulation(projectId, version.number);
-  const run = useRunSimulation(projectId, version.number);
-  const errors = version.issues.filter((i) => i.severity === "error");
+/** Simulation tab: results of the selected version (runs are started from the run bar). */
+export function SimulationView() {
+  const { result, version, running, probes, cursor, driver } = useSimulationSession();
   const analyses = version.circuit.analyses ?? [];
-  const result: SimulationResult | null | undefined = cached.data;
-
-  const blocked = !available
-    ? "ngspice is not available on the server."
-    : errors.length > 0
-      ? `Fix the ${errors.length} ERC error${errors.length === 1 ? "" : "s"} first.`
-      : analyses.length === 0
-        ? "This circuit defines no analyses (op, dc, ac or tran). Ask for one in the chat or add it in the Netlist tab."
-        : null;
+  const links = useMemo<PlotLinks>(
+    () => ({ showsTrace: probes.showsTrace, toggleNet: probes.toggle, cursor, driver }),
+    [probes, cursor, driver],
+  );
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-line bg-panel/95 px-4 py-2 backdrop-blur">
-        <Button variant="primary" size="sm" onClick={() => run.mutate()} disabled={blocked !== null || run.isPending}>
-          {run.isPending ? "Simulating…" : result ? "Re-run simulation" : "Run simulation"}
-        </Button>
-        <span className="text-xs text-muted">
-          {blocked ??
-            (result
-              ? `${result.ok ? "Result" : "Failed run"} for v${version.number}${result.duration_ms ? ` · ${result.duration_ms} ms` : ""}`
-              : `Analyses: ${analyses.map((a) => a.type).join(", ")}`)}
-        </span>
-      </div>
-
       <div className="space-y-4 p-4">
-        {run.isError && (
-          <p role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-sm text-danger">
-            {errorMessage(run.error)}
+        {result === undefined && <p className="text-sm text-muted">Checking for a cached result…</p>}
+        {result === null && (
+          <p className="text-sm text-muted">
+            {running
+              ? "Simulating…"
+              : analyses.length > 0
+                ? `This version has not been simulated yet. Press ▶ Run (F5) to run ${analyses.map((a) => a.type).join(", ")}.`
+                : "This circuit defines no analyses. Set a stop time in the run bar to run a transient, or add analyses in the Netlist tab."}
           </p>
         )}
-        {cached.isPending && <p className="text-sm text-muted">Checking for a cached result…</p>}
-        {cached.isError && <p className="text-sm text-danger">{errorMessage(cached.error)}</p>}
-        {result === null && !run.isPending && (
-          <p className="text-sm text-muted">This version has not been simulated yet.</p>
-        )}
-        {result && <SimulationResults result={result} />}
+        {result && <SimulationResults result={result} links={links} />}
       </div>
     </div>
   );

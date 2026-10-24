@@ -69,3 +69,24 @@ def test_model_keys_are_never_returned(client: TestClient) -> None:
 
     kept = client.put(f"/api/models/{created['id']}", json={**body, "api_key": None}).json()
     assert kept["has_api_key"]
+
+
+def test_run_bar_override_adds_transient_with_all_nodes(
+    client: TestClient, led_circuit: Circuit
+) -> None:
+    if not client.get("/api/health").json()["ngspice"]["available"]:
+        pytest.skip("ngspice not installed")
+    project = client.post("/api/projects", json={}).json()
+    circuit = led_circuit.model_dump(mode="json")
+    client.put(f"/api/projects/{project['id']}/circuit", json={"circuit": circuit})
+
+    result = client.post(
+        f"/api/projects/{project['id']}/versions/1/simulate",
+        json={"stop_time": 1e-3, "step_time": 1e-5},
+    ).json()
+
+    assert result["ok"], result["error"]
+    tran = next(a for a in result["analyses"] if a["type"] == "tran")
+    assert tran["x"]["values"][-1] == pytest.approx(1e-3)
+    nets = {t["net"]: t["probed"] for t in tran["traces"] if t["net"]}
+    assert nets == {"N1": True, "VCC": False}  # every net recorded; only probes plotted

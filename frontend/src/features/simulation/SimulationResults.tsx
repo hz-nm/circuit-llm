@@ -1,7 +1,17 @@
 import { useMemo, useState } from "react";
-import type { AnalysisResult, OperatingPointResult, SimulationResult, SweepResult } from "../../api/types";
+import type { AnalysisResult, OperatingPointResult, SimulationResult, SweepResult, Trace } from "../../api/types";
 import { formatSI } from "../../lib/si";
+import type { CursorStore } from "./live";
 import { UPlotChart, type ChartSeries } from "./UPlotChart";
+
+/** How the plots interact with the rest of the app (probes and the shared cursor); optional. */
+export interface PlotLinks {
+  showsTrace: (trace: Trace) => boolean;
+  toggleNet: (net: string) => void;
+  cursor: CursorStore;
+  /** Index of the analysis the shared cursor belongs to. */
+  driver: number | null;
+}
 
 const TITLES: Record<AnalysisResult["type"], string> = {
   op: "Operating point",
@@ -10,7 +20,7 @@ const TITLES: Record<AnalysisResult["type"], string> = {
   tran: "Transient analysis",
 };
 
-export function SimulationResults({ result }: { result: SimulationResult }) {
+export function SimulationResults({ result, links }: { result: SimulationResult; links?: PlotLinks }) {
   const analyses = result.analyses ?? [];
   return (
     <>
@@ -29,7 +39,7 @@ export function SimulationResults({ result }: { result: SimulationResult }) {
       {analyses.map((analysis, i) => (
         <section key={i} className="rounded-lg border border-line bg-panel p-3">
           <h3 className="mb-2 text-sm font-semibold">{TITLES[analysis.type]}</h3>
-          {analysis.type === "op" ? <OperatingPointTables result={analysis} /> : <SweepSection result={analysis} />}
+          {analysis.type === "op" ? <OperatingPointTables result={analysis} /> : <SweepSection result={analysis} links={links} cursor={links && links.driver === i ? links.cursor : undefined} />}
         </section>
       ))}
       <details>
@@ -88,104 +98,126 @@ export function toDb(values: readonly number[]): number[] {
 
 let syncCounter = 0;
 
-function SweepSection({ result }: { result: SweepResult }) {
+const probedByDefault = (t: Trace) => t.probed !== false;
+
+interface Indexed {
+  trace: Trace;
+  /** Position in the analysis: fixes the trace colour, so probing others never repaints it. */
+  index: number;
+}
+
+function SweepSection({ result, links, cursor }: { result: SweepResult; links: PlotLinks | undefined; cursor: CursorStore | undefined }) {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [syncKey] = useState(() => `sweep-${++syncCounter}`);
-  const traces = result.traces;
-  const toggle = (name: string) =>
+  const shows = links?.showsTrace ?? probedByDefault;
+
+  // Plotted: traces marked probed (by the backend or the user's probes), minus user un-probes.
+  const shown: Indexed[] = useMemo(
+    () => result.traces.map((trace, index) => ({ trace, index })).filter(({ trace }) => shows(trace)),
+    [result.traces, shows],
+  );
+  const extraNets = result.traces.filter((t) => t.net && !shows(t)).length;
+
+  // Unchecking a net trace un-probes it (also on the schematic); current traces are only hidden.
+  const toggle = (trace: Trace) => {
+    if (trace.net && links) {
+      links.toggleNet(trace.net);
+      return;
+    }
     setHidden((h) => {
       const next = new Set(h);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(trace.name)) next.delete(trace.name);
+      else next.add(trace.name);
       return next;
     });
-
-  const xLabel = result.x.name;
-  const logX = result.x.log_scale ?? result.type === "ac";
+  };
+  const visible = (t: Trace) => !hidden.has(t.name);
 
   // One chart per unit: a chart never has two y-scales.
   const groups = useMemo(() => {
-    const byUnit = new Map<string, { name: string; values: number[]; phase: number[] | null; colorIndex: number }[]>();
-    traces.forEach((t, i) => {
-      const list = byUnit.get(t.unit) ?? [];
-      list.push({ name: t.name, values: t.values, phase: t.phase_deg ?? null, colorIndex: i });
-      byUnit.set(t.unit, list);
-    });
+    const byUnit = new Map<string, Indexed[]>();
+    for (const item of shown) {
+      const list = byUnit.get(item.trace.unit) ?? [];
+      list.push(item);
+      byUnit.set(item.trace.unit, list);
+    }
     return [...byUnit.entries()];
-  }, [traces]);
+  }, [shown]);
 
-  const dbSeries = useMemo(
-    () => traces.map((t) => ({ name: t.name, values: toDb(t.values) })),
-    [traces],
-  );
+  const series = (items: Indexed[], values: (t: Trace) => number[]): ChartSeries[] =>
+    items.map(({ trace, index }) => ({ name: trace.name, values: values(trace), colorIndex: index, visible: visible(trace) }));
 
-  if (traces.length === 0) return <p className="text-sm text-muted">No traces were recorded.</p>;
-
-  const visible = (name: string) => !hidden.has(name);
+  const dbCache = useMemo(() => new Map(result.traces.map((t) => [t.name, toDb(t.values)])), [result.traces]);
+  const logX = result.x.log_scale ?? result.type === "ac";
 
   return (
     <div className="space-y-4">
-      {traces.length > 1 && (
-        <fieldset className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-          <legend className="sr-only">Show traces</legend>
-          {traces.map((t) => (
-            <label key={t.name} className="flex cursor-pointer items-center gap-1.5">
-              <input type="checkbox" checked={visible(t.name)} onChange={() => toggle(t.name)} />
-              <span className="font-mono">{t.name}</span>
-            </label>
-          ))}
-        </fieldset>
-      )}
+      <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+        <legend className="sr-only">Plotted traces</legend>
+        {shown.map(({ trace }) => (
+          <label key={trace.name} className="flex cursor-pointer items-center gap-1.5">
+            <input type="checkbox" checked={visible(trace)} onChange={() => toggle(trace)} />
+            <span className="font-mono">{trace.name}</span>
+          </label>
+        ))}
+        {shown.length === 0 && <span className="text-muted">No traces probed.</span>}
+        {extraNets > 0 && links && (
+          <span className="text-muted">+{extraNets} more net{extraNets === 1 ? "" : "s"} recorded: click a wire on the Schematic to probe it.</span>
+        )}
+      </fieldset>
 
-      {result.type === "ac" ? (
-        <>
-          <UPlotChart
-            title="Magnitude"
-            x={result.x.values}
-            xLabel="Frequency"
-            xUnit={result.x.unit}
-            logX
-            yLabel="Magnitude"
-            yUnit="dB"
-            plainY
-            syncKey={syncKey}
-            series={dbSeries.map((s, i): ChartSeries => ({ ...s, colorIndex: i, visible: visible(s.name) }))}
-          />
-          {traces.some((t) => t.phase_deg) && (
+      {shown.length > 0 &&
+        (result.type === "ac" ? (
+          <>
             <UPlotChart
-              title="Phase"
+              title="Magnitude"
               x={result.x.values}
               xLabel="Frequency"
               xUnit={result.x.unit}
               logX
-              yLabel="Phase"
-              yUnit="°"
+              yLabel="Magnitude"
+              yUnit="dB"
               plainY
               syncKey={syncKey}
-              height={180}
-              series={traces.flatMap((t, i): ChartSeries[] =>
-                t.phase_deg ? [{ name: t.name, values: t.phase_deg, colorIndex: i, visible: visible(t.name) }] : [],
-              )}
+              series={series(shown, (t) => dbCache.get(t.name) ?? toDb(t.values))}
             />
-          )}
-        </>
-      ) : (
-        groups.map(([unit, list]) => (
-          <UPlotChart
-            key={unit}
-            title={unit === "V" ? "Voltages" : unit === "A" ? "Currents" : unit || "Values"}
-            x={result.x.values}
-            xLabel={xLabel}
-            xUnit={result.x.unit}
-            logX={logX}
-            yLabel={unit === "V" ? "Voltage" : unit === "A" ? "Current" : "Value"}
-            yUnit={unit}
-            syncKey={syncKey}
-            height={groups.length > 1 ? 200 : 260}
-            series={list.map((s) => ({ name: s.name, values: s.values, colorIndex: s.colorIndex, visible: visible(s.name) }))}
-          />
-        ))
-      )}
+            {shown.some(({ trace }) => trace.phase_deg) && (
+              <UPlotChart
+                title="Phase"
+                x={result.x.values}
+                xLabel="Frequency"
+                xUnit={result.x.unit}
+                logX
+                yLabel="Phase"
+                yUnit="°"
+                plainY
+                syncKey={syncKey}
+                height={180}
+                series={series(
+                  shown.filter(({ trace }) => trace.phase_deg),
+                  (t) => t.phase_deg ?? [],
+                )}
+              />
+            )}
+          </>
+        ) : (
+          groups.map(([unit, items]) => (
+            <UPlotChart
+              key={unit}
+              title={unit === "V" ? "Voltages" : unit === "A" ? "Currents" : unit || "Values"}
+              x={result.x.values}
+              xLabel={result.type === "tran" ? "t" : result.x.name}
+              xUnit={result.x.unit}
+              logX={logX}
+              yLabel={unit === "V" ? "Voltage" : unit === "A" ? "Current" : "Value"}
+              yUnit={unit}
+              syncKey={syncKey}
+              cursor={cursor}
+              height={groups.length > 1 ? 200 : 260}
+              series={series(items, (t) => t.values)}
+            />
+          ))
+        ))}
     </div>
   );
 }
