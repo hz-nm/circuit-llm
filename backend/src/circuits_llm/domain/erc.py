@@ -25,11 +25,21 @@ from .circuit import (
     Transient,
     Waveform,
 )
+from .expectations import (
+    ExpectationSyntaxError,
+    Signal,
+    parse_check,
+    parse_condition,
+    parse_signal,
+)
 
 MAX_TRANSIENT_POINTS: Final = 200_000
 MAX_DC_POINTS: Final = 10_000
 _POINT_TOLERANCE: Final = 1 + 1e-9  # so exactly-at-limit requests survive float rounding
 _TWO_PIN_KINDS: Final = frozenset(k for k, s in CATALOG.items() if len(s.pins) == 2)
+_METERED_THREE_PIN: Final = frozenset(
+    {ComponentKind.NPN, ComponentKind.PNP, ComponentKind.NMOS, ComponentKind.PMOS}
+)
 
 
 class Severity(StrEnum):
@@ -57,6 +67,7 @@ def check_circuit(circuit: Circuit) -> list[Issue]:
         *_check_voltage_loops(circuit),
         *_check_analyses(circuit),
         *_check_probes(circuit),
+        *_check_expectations(circuit),
     ]
     return sorted(issues, key=lambda i: i.severity is not Severity.ERROR)
 
@@ -402,3 +413,53 @@ def _check_probes(circuit: Circuit) -> Iterator[Issue]:
                 "Probe a series resistor instead.",
                 component=component.id,
             )
+
+
+# --------------------------------------------------------------------------- expectations
+
+
+def stimulus_quantities() -> frozenset[str]:
+    return frozenset(s.stimulus.quantity for s in CATALOG.values() if s.stimulus is not None)
+
+
+def _signal_problem(circuit: Circuit, signal: Signal) -> str | None:
+    """Why ``signal`` cannot be measured in ``circuit``, or None if it can."""
+    nets = circuit.nets()
+    if signal.kind == "voltage":
+        if signal.target.lower() in (n.lower() for n in nets):
+            return None
+        return f"net '{signal.target}' does not exist; nets are {_quoted(sorted(nets))}"
+    component = circuit.component(signal.target)
+    if component is None:
+        return f"component '{signal.target}' does not exist"
+    spec = CATALOG[component.kind]
+    if signal.kind == "current":
+        if len(spec.pins) == 2 or component.kind in _METERED_THREE_PIN:
+            return None
+        return f"the current of '{signal.target}' is not measured; use a series resistor"
+    if spec.stimulus is None or spec.stimulus.quantity != signal.quantity:
+        return f"'{signal.target}' has no {signal.quantity} stimulus"
+    return None
+
+
+def _check_expectations(circuit: Circuit) -> Iterator[Issue]:
+    quantities = stimulus_quantities()
+    for index, expectation in enumerate(circuit.expectations, start=1):
+        where = f"Expectation {index} ('{expectation.description}')"
+        try:
+            signals = [parse_signal(expectation.signal, quantities)]
+            parse_check(expectation.check)
+            if expectation.when is not None:
+                signals.append(parse_condition(expectation.when, quantities)[0])
+        except ExpectationSyntaxError as exc:
+            yield _error("bad_expectation", f"{where}: {exc}.")
+            continue
+        for signal in signals:
+            problem = _signal_problem(circuit, signal)
+            if problem is not None:
+                yield _error("bad_expectation", f"{where}: {problem}.")
+    if circuit.expectations and not circuit.analyses:
+        yield _warning(
+            "expectations_without_analysis",
+            "Expectations are checked on the analyses; add an 'op' or 'tran' analysis.",
+        )

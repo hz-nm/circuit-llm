@@ -330,6 +330,8 @@ export interface components {
             analyses?: (components["schemas"]["OperatingPoint"] | components["schemas"]["DcSweep"] | components["schemas"]["AcSweep"] | components["schemas"]["Transient"])[];
             /** Probes */
             probes?: components["schemas"]["Probe"][];
+            /** Expectations */
+            expectations?: components["schemas"]["Expectation"][];
         };
         /** CircuitIn */
         CircuitIn: {
@@ -478,6 +480,33 @@ export interface components {
             latency_ms: number;
             /** Message */
             message: string;
+        };
+        /**
+         * Expectation
+         * @description What the circuit must do, verified on the simulation, e.g. ``I(D1) > 5m``
+         *     ``when`` ``light(LDR1) < 1``. See :mod:`.expectations` for the grammar.
+         */
+        Expectation: {
+            /** Description */
+            description: string;
+            /** Signal */
+            signal: string;
+            /** Check */
+            check: string;
+            /** When */
+            when?: string | null;
+        };
+        /**
+         * ExpectationResult
+         * @description Whether one of the circuit's expectations held in the simulation.
+         */
+        ExpectationResult: {
+            /** Description */
+            description: string;
+            /** Passed */
+            passed: boolean;
+            /** Detail */
+            detail: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -740,6 +769,8 @@ export interface components {
             duration_ms: number;
             /** Checks */
             checks?: components["schemas"]["Issue"][];
+            /** Expectations */
+            expectations?: components["schemas"]["ExpectationResult"][];
         };
         /** SineWave */
         SineWave: {

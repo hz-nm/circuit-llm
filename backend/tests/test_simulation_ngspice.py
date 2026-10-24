@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ from typing import Any
 import pytest
 
 from circuits_llm.domain import Circuit
+from circuits_llm.llm import parse_model_output
+from circuits_llm.llm.prompts import FEW_SHOT_EXAMPLES
 from circuits_llm.simulation import (
     NgspiceSimulator,
     OperatingPointResult,
@@ -304,3 +307,17 @@ def test_ldr_street_lamp_switches_at_dusk_with_hysteresis() -> None:
     turn_on_lux, turn_off_lux = light[switches[0]], light[switches[1]]
     assert 5 < turn_on_lux < 15  # dusk: LDR above ~15k pulls SENSE below VT- (4.7 V)
     assert 20 < turn_off_lux < 45  # dawn needs ~30 lux to pass VT+ (7.1 V): hysteresis
+
+
+@requires_ngspice
+@pytest.mark.parametrize("request_text", [request for request, _, _ in FEW_SHOT_EXAMPLES])
+def test_prompt_examples_meet_their_own_expectations(request_text: str) -> None:
+    # The examples teach the model; each must simulate cleanly and do what it claims.
+    answer = next(a for r, a, _ in FEW_SHOT_EXAMPLES if r == request_text)
+    parsed = parse_model_output(json.dumps(answer))
+    assert parsed.circuit is not None, parsed.problems
+    assert parsed.circuit.expectations, "every example should state its expectations"
+    result = _simulate(parsed.circuit.model_dump(mode="json"))
+    assert result.ok, result.error
+    assert all(e.passed for e in result.expectations), [e.detail for e in result.expectations]
+    assert not [c.message for c in result.checks if c.severity == "error"]

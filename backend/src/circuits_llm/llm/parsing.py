@@ -34,7 +34,13 @@ from circuits_llm.domain import (
     resolve_kind,
     resolve_model,
 )
-from circuits_llm.domain.circuit import MAX_ANALYSES, MAX_COMPONENTS, MAX_PROBES, MAX_PWL_POINTS
+from circuits_llm.domain.circuit import (
+    MAX_ANALYSES,
+    MAX_COMPONENTS,
+    MAX_EXPECTATIONS,
+    MAX_PROBES,
+    MAX_PWL_POINTS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +362,11 @@ _ANALYSIS_ALIASES: Final[dict[str, str]] = {
     ),
 }
 
+_EXPECTATION_SENTENCE_RE: Final = re.compile(
+    r"^\s*(?P<signal>[A-Za-z]+\s*\([^)]*\)|[A-Za-z0-9_]+)\s*(?P<op>>=|<=|>|<)\s*(?P<value>\S+)"
+    r"(?:\s+(?:when|while|if)\s+(?P<when>.+?))?\s*$",
+    re.IGNORECASE,
+)
 _STIMULUS_KEYS: Final = (
     "light",
     "lux",
@@ -435,12 +446,16 @@ class _CircuitBuilder:
         components = self._components(raw_components)
         analyses = self._analyses(_pick(data, "analyses", "analysis", "simulations", "simulation"))
         probes = self._probes(_pick(data, "probes", "outputs", "measurements", "plots", "signals"))
+        expectations = self._expectations(
+            _pick(data, "expectations", "expected_behavior", "expected_behaviour", "assertions")
+        )
         candidate: Json = {
             "title": _text(_pick(data, "title", "name"), 120) or "Untitled circuit",
             "description": _text(_pick(data, "description", "summary"), 4000),
             "components": components,
             "analyses": analyses,
             "probes": probes,
+            "expectations": expectations,
         }
         try:
             circuit = Circuit.model_validate(candidate)
@@ -896,6 +911,43 @@ class _CircuitBuilder:
         return result
 
     # ----------------------------------------------------------------- probes
+
+    def _expectations(self, raw: object) -> list[Json]:
+        """Objects {description, signal, check, when}, or sentences like
+        "I(D1) > 5m when light(LDR1) < 1"."""
+        built: list[Json] = []
+        for index, item in enumerate(_as_items(raw)[:MAX_EXPECTATIONS], start=1):
+            if isinstance(item, str):
+                sentence = _EXPECTATION_SENTENCE_RE.match(item)
+                if sentence is None:
+                    self.problem(
+                        f"Expectation {index}: write it as an object like "
+                        '{"description": "LED on at night", "signal": "I(D1)", '
+                        '"check": "> 5m", "when": "light(LDR1) < 1"}.'
+                    )
+                    continue
+                item = {
+                    "description": item,
+                    "signal": sentence["signal"],
+                    "check": f"{sentence['op']} {sentence['value']}",
+                    "when": sentence["when"],
+                }
+            data = _as_dict(item)
+            if data is None:
+                continue
+            signal = _text(_pick(data, "signal", "measure", "quantity", "of"), 48)
+            check = _text(_pick(data, "check", "condition", "expect", "expected", "test"), 32)
+            when = _pick(data, "when", "while", "if", "during")
+            built.append(
+                {
+                    "description": _text(_pick(data, "description", "name", "label"), 120)
+                    or f"{signal} {check}",
+                    "signal": signal,
+                    "check": check,
+                    "when": (_text(when, 64) or None) if when is not None else None,
+                }
+            )
+        return built
 
     def _probes(self, raw: object) -> list[Json]:
         built: list[Json] = []

@@ -994,6 +994,14 @@
             "type": "array",
             "maxItems": 24,
             "title": "Probes"
+          },
+          "expectations": {
+            "items": {
+              "$ref": "#/components/schemas/Expectation"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Expectations"
           }
         },
         "additionalProperties": false,
@@ -1516,6 +1524,75 @@
           "message"
         ],
         "title": "EndpointTestResult"
+      },
+      "Expectation": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "signal": {
+            "type": "string",
+            "maxLength": 48,
+            "minLength": 1,
+            "title": "Signal"
+          },
+          "check": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Check"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "description",
+          "signal",
+          "check"
+        ],
+        "title": "Expectation",
+        "description": "What the circuit must do, verified on the simulation, e.g. ``I(D1) > 5m``\n``when`` ``light(LDR1) < 1``. See :mod:`.expectations` for the grammar."
+      },
+      "ExpectationResult": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "description",
+          "passed",
+          "detail"
+        ],
+        "title": "ExpectationResult",
+        "description": "Whether one of the circuit's expectations held in the simulation."
       },
       "HTTPValidationError": {
         "properties": {
@@ -2147,6 +2224,13 @@
             },
             "type": "array",
             "title": "Checks"
+          },
+          "expectations": {
+            "items": {
+              "$ref": "#/components/schemas/ExpectationResult"
+            },
+            "type": "array",
+            "title": "Expectations"
           }
         },
         "additionalProperties": false,

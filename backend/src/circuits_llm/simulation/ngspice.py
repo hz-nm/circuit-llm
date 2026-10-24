@@ -23,6 +23,7 @@ from typing import Final, Protocol
 from circuits_llm.domain import Circuit, Issue, Severity
 
 from .diagnostics import diagnose, timeout_reason
+from .expectations import check_expectations
 from .extract import ExtractionError, operating_point, sweep
 from .ratings import check_ratings
 from .raw import RawParseError, RawPlot, parse_raw
@@ -152,7 +153,9 @@ class NgspiceSimulator:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         result = _assemble(deck, output, elapsed_ms)
         if result.ok:
-            result = result.model_copy(update={"checks": check_ratings(circuit, result)})
+            outcomes, failures = check_expectations(circuit, result)
+            checks = [*failures, *check_ratings(circuit, result)]
+            result = result.model_copy(update={"checks": checks, "expectations": outcomes})
         return result
 
     def _run(self, deck: SpiceDeck) -> _RunOutput:

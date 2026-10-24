@@ -257,3 +257,20 @@ def test_sensor_stimulus_synonyms_units_and_misplaced_profiles() -> None:
     assert isinstance(thermistor.stimulus, PwlWave) and thermistor.waveform is None
     assert thermistor.stimulus.points == [(0, 20), (1, 80)]
     assert pot.stimulus == 0.25
+
+
+def test_expectations_as_objects_or_sentences_and_bad_signals_are_problems() -> None:
+    answer = json.loads(json.dumps(FEW_SHOT_EXAMPLES[0][1]))  # the LED example
+    answer["circuit"]["expectations"] = [
+        "I(D1) > 12m",
+        {"name": "LED on", "signal": "I(D1)", "condition": "> 10m", "while": "V(VCC) > 8"},
+    ]
+    result = parse_model_output(json.dumps(answer))
+    assert result.circuit is not None, result.problems
+    first, second = result.circuit.expectations
+    assert (first.signal, first.check, first.when) == ("I(D1)", "> 12m", None)
+    assert (second.description, second.check, second.when) == ("LED on", "> 10m", "V(VCC) > 8")
+
+    answer["circuit"]["expectations"] = [{"description": "x", "signal": "V(NOPE)", "check": "> 1"}]
+    problems = parse_model_output(json.dumps(answer)).problems
+    assert any("net 'NOPE' does not exist" in p for p in problems)

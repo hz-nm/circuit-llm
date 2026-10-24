@@ -23,6 +23,7 @@ MAX_PINS_PER_COMPONENT: Final = 8
 MAX_ANALYSES: Final = 6
 MAX_PROBES: Final = 24
 MAX_PWL_POINTS: Final = 200
+MAX_EXPECTATIONS: Final = 6
 
 
 def normalize_net(name: str) -> str:
@@ -178,6 +179,16 @@ class PinRef(StrictModel):
     pin: str
 
 
+class Expectation(StrictModel):
+    """What the circuit must do, verified on the simulation, e.g. ``I(D1) > 5m``
+    ``when`` ``light(LDR1) < 1``. See :mod:`.expectations` for the grammar."""
+
+    description: Annotated[str, Field(min_length=1, max_length=120)]
+    signal: Annotated[str, Field(min_length=1, max_length=48)]
+    check: Annotated[str, Field(min_length=2, max_length=32)]
+    when: Annotated[str, Field(min_length=3, max_length=64)] | None = None
+
+
 class Circuit(StrictModel):
     title: Annotated[str, Field(min_length=1, max_length=120)]
     description: Annotated[str, Field(max_length=4000)] = ""
@@ -187,6 +198,9 @@ class Circuit(StrictModel):
     )
     probes: Annotated[list[Probe], Field(max_length=MAX_PROBES)] = Field(
         default_factory=list[Probe]
+    )
+    expectations: Annotated[list[Expectation], Field(max_length=MAX_EXPECTATIONS)] = Field(
+        default_factory=list[Expectation]
     )
 
     def component(self, component_id: str) -> Component | None:

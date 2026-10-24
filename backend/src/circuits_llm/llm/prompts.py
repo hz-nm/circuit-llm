@@ -42,7 +42,11 @@ _FORMAT: Final = """\
      {"type": "ac", "start_frequency": 10, "stop_frequency": "1Meg", "points_per_decade": 20},
      {"type": "tran", "stop_time": "5m", "step_time": "5u"}
    ],
-   "probes": [{"kind": "voltage", "target": "OUT"}, {"kind": "current", "target": "R1"}]
+   "probes": [{"kind": "voltage", "target": "OUT"}, {"kind": "current", "target": "R1"}],
+   "expectations": [
+     {"description": "<what the circuit must do>", "signal": "I(D1)", "check": "> 5m",
+      "when": "light(LDR1) < 1"}
+   ]
  }}
 A pulse waveform is {"shape": "pulse", "initial": 0, "pulsed": 5, "width": "0.5m", "period": "1m"}
 (optional "delay", "rise", "fall"). Use it for clocks and square waves.
@@ -52,7 +56,10 @@ night.
 A current probe target is a two-pin component id; a voltage probe target is a net name.
 Sensors take "stimulus": the environment they sense (light in lux, temperature in °C, gas in
 ppm, motion 0/1, knob position 0..1), as a constant such as 500 or as a waveform over time
-such as {"shape": "pwl", "points": [[0, 1000], [1, 0.5]]} for daylight fading to night."""
+such as {"shape": "pwl", "points": [[0, 1000], [1, 0.5]]} for daylight fading to night.
+An expectation states what the circuit must do; the simulator checks it. "signal" is V(net),
+I(component) or a sensor stimulus such as light(LDR1); "check" is >, >=, < or <= and a value;
+the optional "when" is one more comparison, e.g. "V(IN) > 3". Currents are magnitudes."""
 
 _RULES: Final = f"""\
 1. Answer with ONE JSON object in exactly the format below and nothing else: no prose outside \
@@ -75,7 +82,10 @@ ids and net names exactly as they were.
 11. If the user only asks a question and no circuit change is needed, answer in "reply" and \
 set "circuit" to null.
 12. Keep "reply" short: what the circuit does, key values and why, what to look at in the plots.
-    Write maths as plain text such as "f = 1/(2*pi*R*C) = 1.0 kHz"; never use LaTeX or $...$."""
+    Write maths as plain text such as "f = 1/(2*pi*R*C) = 1.0 kHz"; never use LaTeX or $...$.
+13. Add 1 to 3 "expectations" that capture what the user asked for (e.g. "the LED is on in \
+the dark and off in daylight"), using signals your analyses record. If one fails, fix the \
+circuit, not the expectation."""
 
 _EXAMPLE_LED_REQUEST: Final = "Light a red LED from a 9 V battery at about 15 mA."
 _EXAMPLE_LED: Final[dict[str, Any]] = {
@@ -98,6 +108,10 @@ _EXAMPLE_LED: Final[dict[str, Any]] = {
         ],
         "analyses": [{"type": "op"}],
         "probes": [{"kind": "voltage", "target": "N1"}, {"kind": "current", "target": "R1"}],
+        "expectations": [
+            {"description": "LED current is about 15 mA", "signal": "I(D1)", "check": "> 12m"},
+            {"description": "LED is not overdriven", "signal": "I(D1)", "check": "< 20m"},
+        ],
     },
 }
 
@@ -132,6 +146,13 @@ _EXAMPLE_RC: Final[dict[str, Any]] = {
             {"type": "tran", "stop_time": "5m", "step_time": "5u"},
         ],
         "probes": [{"kind": "voltage", "target": "IN"}, {"kind": "voltage", "target": "OUT"}],
+        "expectations": [
+            {
+                "description": "the filter attenuates the 1 V input",
+                "signal": "V(OUT)",
+                "check": "< 0.9",
+            }
+        ],
     },
 }
 
@@ -192,6 +213,20 @@ _EXAMPLE_LAMP: Final[dict[str, Any]] = {
             {"kind": "voltage", "target": "GATE"},
             {"kind": "current", "target": "LA1"},
         ],
+        "expectations": [
+            {
+                "description": "lamp on at night",
+                "signal": "I(LA1)",
+                "check": "> 3",
+                "when": "V(SOLAR) < 3",
+            },
+            {
+                "description": "lamp off in daylight",
+                "signal": "I(LA1)",
+                "check": "< 0.1",
+                "when": "V(SOLAR) > 15",
+            },
+        ],
     },
 }
 
@@ -247,6 +282,20 @@ _EXAMPLE_LDR: Final[dict[str, Any]] = {
         ],
         "analyses": [{"type": "tran", "stop_time": 1, "step_time": "1m"}],
         "probes": [{"kind": "voltage", "target": "SENSE"}, {"kind": "current", "target": "LA1"}],
+        "expectations": [
+            {
+                "description": "lamp on at night",
+                "signal": "I(LA1)",
+                "check": "> 3",
+                "when": "light(LDR1) < 5",
+            },
+            {
+                "description": "lamp off in daylight",
+                "signal": "I(LA1)",
+                "check": "< 0.1",
+                "when": "light(LDR1) > 100",
+            },
+        ],
     },
 }
 
@@ -399,6 +448,19 @@ def response_schema() -> dict[str, Any]:
             "components": {"type": "array", "items": component},
             "analyses": {"type": "array", "items": analysis},
             "probes": {"type": "array", "items": probe},
+            "expectations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "signal": {"type": "string"},
+                        "check": {"type": "string"},
+                        "when": _nullable("string"),
+                    },
+                    "required": ["description", "signal", "check"],
+                },
+            },
         },
         "required": ["title", "components", "analyses", "probes"],
     }

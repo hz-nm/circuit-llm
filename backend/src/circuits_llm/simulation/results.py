@@ -54,6 +54,14 @@ class SweepResult(_Result):
 AnalysisResult = Annotated[OperatingPointResult | SweepResult, Field(discriminator="type")]
 
 
+class ExpectationResult(_Result):
+    """Whether one of the circuit's expectations held in the simulation."""
+
+    description: str
+    passed: bool
+    detail: str  # what was measured, readable by people and the LLM
+
+
 class SimulationResult(_Result):
     ok: bool
     analyses: list[AnalysisResult] = Field(default_factory=list[AnalysisResult])
@@ -64,3 +72,5 @@ class SimulationResult(_Result):
     # Post-simulation rating checks (overcurrent, overpower, supply range...); errors mean
     # a real part would be destroyed or not work.
     checks: list[Issue] = Field(default_factory=list[Issue])
+    # The circuit's expectations (what it must do), verified on these results.
+    expectations: list[ExpectationResult] = Field(default_factory=list[ExpectationResult])

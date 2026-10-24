@@ -29,9 +29,14 @@ const TONE = { muted: "text-muted", ok: "text-ok", danger: "text-danger", warn: 
 export function RunBar() {
   const session = useSimulationSession();
   const { version, status, running, run, stop, autoRun, setAutoRun, checks, navigate } = session;
-  const ratingErrors = checks.filter((c) => c.severity === "error").length;
-  const ratingWarnings = checks.length - ratingErrors;
-  const showChecks = (status.kind === "done" || status.kind === "ready") && checks.length > 0;
+  // Failed expectations are also error checks; the expectations chip covers them, so skip them here.
+  const ratingChecks = checks.filter((c) => c.code !== "expectation_failed");
+  const ratingErrors = ratingChecks.filter((c) => c.severity === "error").length;
+  const ratingWarnings = ratingChecks.length - ratingErrors;
+  const settled = status.kind === "done" || status.kind === "ready";
+  const showChecks = settled && ratingChecks.length > 0;
+  const expectations = session.result?.ok ? (session.result.expectations ?? []) : [];
+  const passed = expectations.filter((e) => e.passed).length;
   const id = useId();
 
   const tran = (version.circuit.analyses ?? []).find((a) => a.type === "tran");
@@ -115,6 +120,18 @@ export function RunBar() {
       <span role="status" aria-live="polite" className={`min-w-0 flex-1 truncate text-right text-xs ${TONE[tone]}`} title={text}>
         {stopInvalid || stepInvalid ? <span className="text-danger">Use a time like 5m or 10u</span> : text}
       </span>
+      {settled && expectations.length > 0 && (
+        <button
+          type="button"
+          onClick={() => navigate("simulation", "expectations")}
+          title="Show the expectations in the Simulation tab"
+          className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-xs font-medium focus-visible:outline-2 focus-visible:outline-accent ${
+            passed === expectations.length ? "text-ok hover:bg-sunken" : "bg-danger-soft text-danger hover:brightness-95"
+          }`}
+        >
+          {passed === expectations.length ? "✓" : "✗"} {passed}/{expectations.length}
+        </button>
+      )}
       {showChecks && (
         <button
           type="button"

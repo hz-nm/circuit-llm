@@ -53,7 +53,7 @@ export interface SimulationSession {
 export interface NavRequest {
   tab: "schematic" | "simulation";
   /** "checks" scrolls the Simulation tab to the Bench checks panel. */
-  focus: "checks" | null;
+  focus: "checks" | "expectations" | null;
   seq: number;
 }
 
