@@ -35,7 +35,9 @@ def _check_plot(plot: RawPlot, planned: PlannedAnalysis) -> None:
         raise ExtractionError("the analysis produced no data points")
     if isinstance(planned.analysis, Transient):
         reached, stop = plot.real[0][-1], planned.analysis.stop_time
-        if reached < stop * (1 - TRAN_END_TOLERANCE):
+        # Some ngspice builds omit the final output point, so allow one step of slack.
+        slack = max(stop * TRAN_END_TOLERANCE, 1.5 * planned.analysis.effective_step)
+        if reached < stop - slack:
             raise ExtractionError(f"transient analysis stopped early at t = {reached:.4g} s")
 
 
