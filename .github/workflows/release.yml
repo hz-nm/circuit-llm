@@ -64,3 +64,4 @@ jobs:
         with:
           files: artifacts/**/*.zip
           generate_release_notes: true
+          draft: true  # review the builds, then publish from the Releases page
