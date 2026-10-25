@@ -1,6 +1,6 @@
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
 import type { Circuit } from "../../api/types";
-import { circuitToElk, type ConversionOptions, type PlacedComponent, type Point } from "./toElk";
+import { circuitToElk, type ConversionOptions, type PinRef, type PlacedComponent, type Point } from "./toElk";
 
 export interface LaidOutComponent {
   placed: PlacedComponent;
@@ -13,6 +13,8 @@ export interface Wire {
   id: string;
   net: string;
   points: Point[];
+  /** Pin this wire ends at (drawn from the net's root pin); absent for synthetic wires in tests. */
+  target?: PinRef;
 }
 
 export interface NetLabel {
@@ -72,6 +74,7 @@ export async function layoutCircuit(
   });
 
   const netOf = new Map(conversion.edges.map((e) => [e.id, e.net]));
+  const targetOf = new Map(conversion.edges.map((e) => [e.id, e.target]));
   const wires: Wire[] = [];
   const netLabels: NetLabel[] = [];
   for (const edge of (result.edges ?? []) as ElkExtendedEdge[]) {
@@ -80,6 +83,7 @@ export async function layoutCircuit(
       wires.push({
         id: section.id ?? edge.id,
         net,
+        target: targetOf.get(edge.id),
         points: [section.startPoint, ...(section.bendPoints ?? []), section.endPoint].map((p) => ({ x: p.x, y: p.y })),
       });
     }

@@ -24,6 +24,19 @@ _CONDITION_RE: Final = re.compile(r"^\s*(.+?)\s*(>=|<=|>|<)\s*(.+?)\s*$")
 _CHECK_RE: Final = re.compile(r"^\s*(>=|<=|>|<)\s*(.+?)\s*$")
 
 
+# Short forms models naturally write, e.g. temp(TH1) for temperature(TH1).
+_QUANTITY_ALIASES: Final = {
+    "temp": "temperature",
+    "t": "temperature",
+    "lux": "light",
+    "illuminance": "light",
+    "ppm": "gas",
+    "concentration": "gas",
+    "pos": "position",
+    "knob": "position",
+}
+
+
 class ExpectationSyntaxError(ValueError):
     """An expectation that does not follow the grammar; the message says how to fix it."""
 
@@ -65,6 +78,7 @@ def parse_signal(text: str, stimulus_quantities: frozenset[str]) -> Signal:
             return Signal("voltage", target)
         if function == "i":
             return Signal("current", target)
+        function = _QUANTITY_ALIASES.get(function, function)
         if function in stimulus_quantities:
             return Signal("stimulus", target, function)
         known = ", ".join(sorted({"V", "I", *stimulus_quantities}))

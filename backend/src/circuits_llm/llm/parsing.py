@@ -38,6 +38,7 @@ from circuits_llm.domain.circuit import (
     MAX_ANALYSES,
     MAX_COMPONENTS,
     MAX_EXPECTATIONS,
+    MAX_PIN_BEHAVIORS,
     MAX_PROBES,
     MAX_PWL_POINTS,
 )
@@ -367,6 +368,22 @@ _EXPECTATION_SENTENCE_RE: Final = re.compile(
     r"(?:\s+(?:when|while|if)\s+(?P<when>.+?))?\s*$",
     re.IGNORECASE,
 )
+_BEHAVIOR_KEYS: Final = (
+    "behavior",
+    "behaviour",
+    "behaviors",
+    "behaviours",
+    "program",
+    "pin_behavior",
+    "pin_behaviors",
+)
+_BEHAVIOR_OUTPUTS: Final[dict[str, str]] = {
+    **{word: "high" for word in ("high", "on", "1", "true", "set")},
+    **{word: "low" for word in ("low", "off", "0", "false", "clear")},
+    **{word: "blink" for word in ("blink", "toggle", "flash", "square", "clock", "oscillate")},
+    **{word: "pwm" for word in ("pwm", "analog_write", "analogwrite", "dim", "dimmer")},
+    **{word: "rule" for word in ("rule", "if", "threshold", "when", "condition", "compare")},
+}
 _STIMULUS_KEYS: Final = (
     "light",
     "lux",
@@ -549,10 +566,71 @@ class _CircuitBuilder:
             result["ac_magnitude"] = 1.0 if ac is True else self.number(ac, f"{name} ac_magnitude")
         if spec.stimulus is not None:
             self._sensor_stimulus(data, spec, name, result)
+        if spec.kind is ComponentKind.ARDUINO_UNO:
+            # Weak models copy the template's example waveform onto the Arduino, where it
+            # means nothing; drop it instead of bouncing the whole answer back.
+            result.pop("waveform", None)
+            result.pop("ac_magnitude", None)
+            behavior = _pick(data, *_BEHAVIOR_KEYS)
+            if behavior is not None:
+                result["behavior"] = self._behaviors(behavior, spec, name)
+            elif _pick(data, "code", "sketch", "firmware", "source", "logic") is not None:
+                self.problem(
+                    f'{name}: do not write Arduino code; program the pins with "behavior", e.g. '
+                    '[{"pin": "D9", "output": "rule", "when": "A0 > 2.5"}]. The sketch is '
+                    "generated from it."
+                )
         label = _pick(data, "label", "note", "comment", "description")
         if label is not None:
             result["label"] = _text(label, 120)
         return result
+
+    def _behaviors(self, raw: object, spec: ComponentSpec, name: str) -> list[Json]:
+        """A list of pin behaviours, or a mapping such as {"D13": "blink", "D9": {...}}."""
+        mapping = _as_dict(raw)
+        if mapping is not None and not _pick(mapping, "pin", "output", "mode"):
+            raw = [
+                {"pin": pin, **(_as_dict(value) or {"output": value})}
+                for pin, value in mapping.items()
+            ]
+        built: list[Json] = []
+        for item in _as_items(raw)[:MAX_PIN_BEHAVIORS]:
+            data = _as_dict(item)
+            if data is None:
+                self.problem(f'{name} behavior: each item must be like {{"pin": "D13", ...}}.')
+                continue
+            where = f"{name} behavior"
+            raw_pin = _text(_pick(data, "pin", "port", "output_pin"), 16)
+            pin = spec.resolve_pin(raw_pin.replace(" ", "")) or raw_pin.upper()
+            raw_output = _text(_pick(data, "output", "mode", "type", "action", "behavior"), 24)
+            output = _BEHAVIOR_OUTPUTS.get(raw_output.lower().replace(" ", "_"))
+            when = _pick(data, "when", "condition", "if", "while")
+            if output is None:
+                output = "rule" if when is not None else None
+            if output is None:
+                self.problem(
+                    f"{where} '{pin}': output '{raw_output}' is not supported; use high, low, "
+                    "blink, pwm or rule."
+                )
+                continue
+            entry: Json = {"pin": pin, "output": output}
+            for key, aliases in (
+                ("period", ("period", "interval", "blink_period")),
+                ("frequency", ("frequency", "freq", "hz")),
+            ):
+                value = self.optional_number(data, aliases, f"{where} '{pin}'")
+                if value is not None:
+                    entry[key] = value
+            duty = _pick(data, "duty", "duty_cycle", "dutycycle", "brightness")
+            if duty is not None:
+                text = str(duty).strip()
+                value = self.number(text.removesuffix("%"), f"{where} '{pin}' duty")
+                if value is not None:
+                    entry["duty"] = value / 100 if text.endswith("%") or value > 1 else value
+            if when is not None:
+                entry["when"] = _text(when, 48)
+            built.append(entry)
+        return built
 
     def _sensor_stimulus(self, data: Json, spec: ComponentSpec, name: str, out: Json) -> None:
         """Read a sensor's environment: a constant, a waveform, or a profile under a synonym."""
@@ -562,6 +640,7 @@ class _CircuitBuilder:
             if "waveform" in out:  # weak models put the light/temperature profile here
                 out["stimulus"] = out.pop("waveform")
             return
+        out.pop("waveform", None)  # a sensor has no waveform; the stimulus wins
         where = f"{name} stimulus"
         constant = _as_dict(raw)
         if constant is not None and _pick(constant, "shape", "type", "points") is None:

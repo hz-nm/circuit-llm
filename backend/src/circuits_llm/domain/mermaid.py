@@ -69,6 +69,10 @@ def component_summary(component: Component) -> str:
             parts.append(f"{spec.stimulus.quantity} {stim:g} {unit}".strip())
         else:
             parts.append(f"{spec.stimulus.quantity} {stim.shape}")
+    for b in component.behavior or []:
+        detail = {"blink": f" {b.period:g} s" if b.period else "", "rule": f" {b.when}"}
+        duty = f" {b.duty:.0%}" if b.output == "pwm" and b.duty is not None else ""
+        parts.append(f"{b.pin} {b.output}{detail.get(b.output, '')}{duty}")
     model = component.model or spec.default_model
     if model is not None:
         parts.append(model)
@@ -80,7 +84,7 @@ def to_mermaid(circuit: Circuit) -> str:
     for component in circuit.components:
         spec = CATALOG[component.kind]
         open_, close = _SHAPES[spec.category]
-        summary = component_summary(component)
+        summary = component_summary(component).replace("<", "#lt;").replace(">", "#gt;")
         label = f"<b>{component.id}</b><br/>{spec.display_name}" + (
             f"<br/>{summary}" if summary else ""
         )

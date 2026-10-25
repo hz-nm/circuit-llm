@@ -5,6 +5,7 @@ import json
 import pytest
 
 from circuits_llm.domain import AcSweep, ComponentKind, PulseWave, PwlWave, SineWave, Transient
+from circuits_llm.domain.arduino import sketch
 from circuits_llm.llm import parse_model_output
 from circuits_llm.llm.prompts import FEW_SHOT_EXAMPLES, response_schema, system_prompt
 
@@ -274,3 +275,39 @@ def test_expectations_as_objects_or_sentences_and_bad_signals_are_problems() -> 
     answer["circuit"]["expectations"] = [{"description": "x", "signal": "V(NOPE)", "check": "> 1"}]
     problems = parse_model_output(json.dumps(answer)).problems
     assert any("net 'NOPE' does not exist" in p for p in problems)
+
+
+def test_arduino_behaviors_from_loose_output_and_generated_sketch() -> None:
+    answer = {
+        "reply": "r",
+        "circuit": {
+            "title": "t",
+            "components": [
+                {
+                    "id": "U1",
+                    "kind": "Arduino",
+                    "pins": {"GND": "GND", "13": "P13", "pin9": "P9", "a0": "S", "5v": "VCC"},
+                    # mapping form, synonyms, percent duty
+                    "program": {
+                        "13": {"output": "toggle", "period": "0.5"},
+                        "D9": {"mode": "pwm", "duty": "25%"},
+                    },
+                },
+                {"id": "R1", "kind": "resistor", "value": "1k", "pins": ["P13", "GND"]},
+                {"id": "R2", "kind": "resistor", "value": "1k", "pins": ["P9", "GND"]},
+                {"id": "R3", "kind": "resistor", "value": "10k", "pins": ["VCC", "S"]},
+                {"id": "R4", "kind": "resistor", "value": "10k", "pins": ["S", "GND"]},
+            ],
+        },
+    }
+    result = parse_model_output(json.dumps(answer))
+    assert result.circuit is not None, result.problems
+    arduino = result.circuit.components[0]
+    assert arduino.behavior is not None
+    blink, pwm = arduino.behavior
+    assert (blink.pin, blink.output, blink.period) == ("D13", "blink", 0.5)
+    assert (pwm.pin, pwm.output, pwm.duty) == ("D9", "pwm", 0.25)
+
+    code = sketch(arduino)
+    assert "analogWrite(9, 64);" in code  # 25% of 255
+    assert "digitalWrite(13, (now % 500) < 250 ? HIGH : LOW);" in code

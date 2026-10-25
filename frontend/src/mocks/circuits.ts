@@ -127,7 +127,31 @@ export const sensorZoo: Circuit = {
   probes: [],
 };
 
-export const MOCK_CIRCUITS: readonly Circuit[] = [ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo, logicZoo, sensorZoo];
+/** Arduino Uno night light (the backend generates its sketch). */
+export const arduinoNightLight: Circuit = {
+  title: "Arduino night light",
+  description: "",
+  components: [
+    {
+      id: "U1",
+      kind: "arduino_uno",
+      pins: { GND: "GND", "5V": "VCC", A0: "SENSE", D9: "PIN9", D13: "PIN13" },
+      behavior: [
+        { pin: "D9", output: "rule", when: "A0 > 2.5" },
+        { pin: "D13", output: "blink", period: 0.25 },
+      ],
+    },
+    { id: "R1", kind: "resistor", value: 10000, pins: { "1": "VCC", "2": "SENSE" } },
+    { id: "LDR1", kind: "ldr", pins: { "1": "SENSE", "2": "GND" }, stimulus: { shape: "pwl", points: [[0, 1000], [0.4, 0.5], [0.6, 0.5], [1, 1000]] } },
+    { id: "R2", kind: "resistor", value: 220, pins: { "1": "PIN9", "2": "LED" } },
+    { id: "D1", kind: "led", pins: { anode: "LED", cathode: "GND" } },
+    { id: "R3", kind: "resistor", value: 1000, pins: { "1": "PIN13", "2": "GND" } },
+  ],
+  analyses: [{ type: "tran", stop_time: 1, step_time: 0.001, start_time: 0 }],
+  probes: [],
+};
+
+export const MOCK_CIRCUITS: readonly Circuit[] = [ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo, logicZoo, sensorZoo, arduinoNightLight];
 
 // ---------------------------------------------------------------------------- simulation results
 

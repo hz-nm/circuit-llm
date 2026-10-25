@@ -34,7 +34,7 @@ _FORMAT: Final = """\
      {"id": "D1", "kind": "led", "model": "red", "pins": {"anode": "N1", "cathode": "GND"}},
      {"id": "V1", "kind": "voltage_source", "value": 0, "ac_magnitude": 1,
       "waveform": {"shape": "sine", "offset": 0, "amplitude": 1, "frequency": "1k"},
-      "pins": {"+": "IN", "-": "GND"}}
+      "pins": {"+": "IN", "-": "GND"}}{family_components}
    ],
    "analyses": [
      {"type": "op"},
@@ -54,9 +54,6 @@ A piecewise-linear waveform is {"shape": "pwl", "points": [[0, 18], [0.4, 0], [1
 [time, value] pairs with increasing times. Use it for ramps and slow changes such as day to \
 night.
 A current probe target is a two-pin component id; a voltage probe target is a net name.
-Sensors take "stimulus": the environment they sense (light in lux, temperature in °C, gas in
-ppm, motion 0/1, knob position 0..1), as a constant such as 500 or as a waveform over time
-such as {"shape": "pwl", "points": [[0, 1000], [1, 0.5]]} for daylight fading to night.
 An expectation states what the circuit must do; the simulator checks it. "signal" is V(net),
 I(component) or a sensor stimulus such as light(LDR1); "check" is >, >=, < or <= and a value;
 the optional "when" is one more comparison, e.g. "V(IN) > 3". Currents are magnitudes."""
@@ -299,6 +296,96 @@ _EXAMPLE_LDR: Final[dict[str, Any]] = {
     },
 }
 
+_EXAMPLE_ARDUINO_REQUEST: Final = "Use an Arduino to turn an LED on when it gets dark."
+_EXAMPLE_ARDUINO: Final[dict[str, Any]] = {
+    "reply": (
+        "A 10k resistor and an LDR divide the Arduino's 5 V into A0: in the dark the LDR "
+        "rises above 10k, so A0 goes above 2.5 V. D9 is programmed to go high while A0 > 2.5 V "
+        "and lights the LED through 220 ohms, about 12 mA, well inside the 20 mA pin limit. "
+        "The light fades from daylight to night and back. The Arduino sketch is generated "
+        "from the pin behaviour."
+    ),
+    "circuit": {
+        "title": "Arduino night light",
+        "description": "LDR divider on A0; D9 lights an LED when it is dark.",
+        "components": [
+            {
+                "id": "U1",
+                "kind": "arduino_uno",
+                "pins": {"GND": "GND", "5V": "VCC", "A0": "SENSE", "D9": "PIN9"},
+                "behavior": [{"pin": "D9", "output": "rule", "when": "A0 > 2.5"}],
+            },
+            {"id": "R1", "kind": "resistor", "value": "10k", "pins": {"1": "VCC", "2": "SENSE"}},
+            {
+                "id": "LDR1",
+                "kind": "ldr",
+                "stimulus": {
+                    "shape": "pwl",
+                    "points": [[0, 1000], [0.4, 0.5], [0.6, 0.5], [1, 1000]],
+                },
+                "pins": {"1": "SENSE", "2": "GND"},
+            },
+            {"id": "R2", "kind": "resistor", "value": "220", "pins": {"1": "PIN9", "2": "LED"}},
+            {"id": "D1", "kind": "led", "model": "red", "pins": {"anode": "LED", "cathode": "GND"}},
+        ],
+        "analyses": [{"type": "tran", "stop_time": 1, "step_time": "1m"}],
+        "probes": [{"kind": "voltage", "target": "SENSE"}, {"kind": "current", "target": "D1"}],
+        "expectations": [
+            {
+                "description": "LED on in the dark",
+                "signal": "I(D1)",
+                "check": "> 5m",
+                "when": "light(LDR1) < 5",
+            },
+            {
+                "description": "LED off in daylight",
+                "signal": "I(D1)",
+                "check": "< 0.5m",
+                "when": "light(LDR1) > 100",
+            },
+        ],
+    },
+}
+
+# Skeleton lines shown only when their family is in the prompt: weak models copy the
+# FORMAT skeleton far more faithfully than they follow descriptions.
+_FAMILY_SKELETON_LINES: Final[dict[Family, str]] = {
+    Family.SENSORS: (
+        ',\n     {"id": "LDR1", "kind": "ldr", "pins": {"1": "VCC", "2": "SENSE"},\n'
+        '      "stimulus": {"shape": "pwl", "points": [[0, 1000], [1, 0.5]]}}'
+    ),
+    Family.MICROCONTROLLERS: (
+        ',\n     {"id": "U1", "kind": "arduino_uno",\n'
+        '      "pins": {"GND": "GND", "5V": "VCC", "A0": "SENSE", "D9": "OUT"},\n'
+        '      "behavior": [{"pin": "D9", "output": "rule", "when": "A0 > 2.5"}]}'
+    ),
+}
+
+
+_FAMILY_NOTES: Final[dict[Family, str]] = {
+    Family.SENSORS: (
+        'Sensors take "stimulus": the environment they sense (light in lux, temperature in '
+        "°C, gas in ppm, motion 0/1, knob position 0..1), as a constant such as 500 or as a "
+        'waveform over time such as {"shape": "pwl", "points": [[0, 1000], [1, 0.5]]} for '
+        "daylight fading to night. Always give each sensor the stimulus your analyses need."
+    ),
+    Family.MICROCONTROLLERS: (
+        'An arduino_uno is programmed with "behavior", one entry per output pin, e.g. '
+        '[{"pin": "D13", "output": "blink", "period": 1}, {"pin": "D9", "output": "rule", '
+        '"when": "A0 > 2.5"}]. "output" is high, low, blink ("period" in seconds), pwm '
+        '("duty" 0..1) or rule (high while "when" holds; "when" compares an analog pin A0-A5 '
+        "with volts). Every connected D pin MUST have a behavior entry. Never write Arduino "
+        "code: the sketch is generated from the behaviours."
+    ),
+}
+
+
+def _format(families: frozenset[Family]) -> str:
+    extra = "".join(line for family, line in _FAMILY_SKELETON_LINES.items() if family in families)
+    notes = [note for family, note in _FAMILY_NOTES.items() if family in families]
+    return "\n".join([_FORMAT.replace("{family_components}", extra), *notes])
+
+
 # (request, answer, families the example needs). An example is shown only when every
 # family it uses is described in the prompt.
 FEW_SHOT_EXAMPLES: Final[tuple[tuple[str, dict[str, Any], frozenset[Family]], ...]] = (
@@ -313,6 +400,11 @@ FEW_SHOT_EXAMPLES: Final[tuple[tuple[str, dict[str, Any], frozenset[Family]], ..
         _EXAMPLE_LDR_REQUEST,
         _EXAMPLE_LDR,
         frozenset({Family.CORE, Family.SENSORS, Family.LOGIC, Family.TRANSISTORS}),
+    ),
+    (
+        _EXAMPLE_ARDUINO_REQUEST,
+        _EXAMPLE_ARDUINO,
+        frozenset({Family.CORE, Family.SENSORS, Family.MICROCONTROLLERS}),
     ),
 )
 
@@ -353,7 +445,7 @@ def _system_prompt(families: frozenset[Family]) -> str:
     return (
         "You are an electronics engineer. You design circuits that are simulated with SPICE.\n\n"
         f"RULES\n{_RULES}\n\n"
-        f"FORMAT\n{_FORMAT}\n\n"
+        f"FORMAT\n{_format(families)}\n\n"
         f"COMPONENTS\n{components}\n\n"
         f"EXAMPLES\n{examples}"
     )

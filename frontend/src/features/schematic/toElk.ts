@@ -31,7 +31,7 @@ export interface Box {
 
 /** Something drawn at a pin in addition to the symbol (all coordinates node-local). */
 export type PinAttachment =
-  | { type: "ground"; wire: Point[]; glyph: Point; up: boolean }
+  | { type: "ground"; pin: string; wire: Point[]; glyph: Point; up: boolean }
   | { type: "flag"; wire: Point[]; net: string; name: string | null; width: number; anchor: Point; align: "start" | "middle" | "end" };
 
 export interface PlacedPort {
@@ -60,9 +60,16 @@ export interface PlacedComponent {
   label: string[];
 }
 
+export interface PinRef {
+  componentId: string;
+  pin: string;
+}
+
 export interface NetEdgeMeta {
   id: string;
   net: string;
+  /** The net is drawn as a star: every edge runs from the root pin to `target`. */
+  target: PinRef;
 }
 
 export interface ElkConversion {
@@ -163,18 +170,18 @@ const GROUND_LEAD = 10;
 const SIDE_GROUND_LEAD = 14;
 const FLAG_LEAD = 8;
 
-function groundAttachment(p: Point, side: Side): PinAttachment {
+function groundAttachment(p: Point, side: Side, pin: string): PinAttachment {
   switch (side) {
     case "SOUTH":
-      return { type: "ground", wire: [p, { x: p.x, y: p.y + GROUND_LEAD }], glyph: { x: p.x, y: p.y + GROUND_LEAD }, up: false };
+      return { type: "ground", pin, wire: [p, { x: p.x, y: p.y + GROUND_LEAD }], glyph: { x: p.x, y: p.y + GROUND_LEAD }, up: false };
     case "NORTH":
-      return { type: "ground", wire: [p, { x: p.x, y: p.y - GROUND_LEAD }], glyph: { x: p.x, y: p.y - GROUND_LEAD }, up: true };
+      return { type: "ground", pin, wire: [p, { x: p.x, y: p.y - GROUND_LEAD }], glyph: { x: p.x, y: p.y - GROUND_LEAD }, up: true };
     case "EAST":
     case "WEST": {
       const dx = OUTWARD[side].x * SIDE_GROUND_LEAD;
       const corner = { x: p.x + dx, y: p.y };
       const end = { x: p.x + dx, y: p.y + 8 };
-      return { type: "ground", wire: [p, corner, end], glyph: end, up: false };
+      return { type: "ground", pin, wire: [p, corner, end], glyph: end, up: false };
     }
   }
 }
@@ -230,24 +237,26 @@ export function placeComponent(
   options: ConversionOptions = {},
 ): PlacedComponent {
   const symbol = SYMBOLS[component.kind];
+  // Most symbols have a fixed box and pins; some (Arduino) size themselves per component.
+  const geometry = symbol.geometry?.(component) ?? symbol;
   const rotation = chooseRotation(symbol, component.pins);
   const rotated = rotation === 90 || rotation === 270;
-  const w = rotated ? symbol.height : symbol.width;
-  const h = rotated ? symbol.width : symbol.height;
+  const w = rotated ? geometry.height : geometry.width;
+  const h = rotated ? geometry.width : geometry.height;
   const connected = new Set(Object.keys(component.pins));
 
   const box: Box = { minX: 0, minY: 0, maxX: w, maxY: h };
   const attachments: PinAttachment[] = [];
   const routed: { pin: string; net: string; side: Side; at: Point }[] = [];
 
-  for (const pin of symbol.pins) {
+  for (const pin of geometry.pins) {
     const net = component.pins[pin.name];
     if (net === undefined) continue;
-    const at = rotatePoint({ x: pin.x, y: pin.y }, symbol.width, symbol.height, rotation);
+    const at = rotatePoint({ x: pin.x, y: pin.y }, geometry.width, geometry.height, rotation);
     const side = rotateSide(pin.side, rotation);
     let attachment: PinAttachment | null = null;
     if (net === GROUND) {
-      attachment = groundAttachment(at, side);
+      attachment = groundAttachment(at, side, pin.name);
     } else if ((netSizes.get(net) ?? 0) < 2) {
       const sizing = netLabelSizing(net, options);
       attachment = sizing ? flagAttachment(at, side, net, sizing.name, textWidth(sizing.text)) : null;
@@ -377,7 +386,7 @@ export function circuitToElk(circuit: Circuit, options: ConversionOptions = {}):
             ? [{ id: `${id}:label`, text: sizing.name ?? "", width: textWidth(sizing.text), height: LINE_HEIGHT }]
             : undefined,
       });
-      edgeMeta.push({ id, net });
+      edgeMeta.push({ id, net, target: { componentId: target.componentId, pin: target.port.pin } });
     });
   }
 

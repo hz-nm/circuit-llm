@@ -13,7 +13,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from circuits_llm.domain import CATALOG, Circuit, Expectation, Issue, Severity, format_si
+from circuits_llm.domain import (
+    CATALOG,
+    Circuit,
+    Component,
+    Expectation,
+    Issue,
+    Severity,
+    format_si,
+)
 from circuits_llm.domain.erc import stimulus_quantities
 from circuits_llm.domain.expectations import (
     Comparison,
@@ -32,6 +40,7 @@ from .results import (
 )
 
 PASS_FRACTION: Final = 0.9
+_NEVER_HAPPENS: Final = "never happens"
 _ANALYSIS_ORDER: Final = ("tran", "dc", "op")
 _ANALYSIS_NAMES: Final = {"tran": "transient", "dc": "DC sweep", "op": "operating point"}
 
@@ -90,15 +99,42 @@ def check_expectations(
     available.sort(key=lambda s: _ANALYSIS_ORDER.index(s.analysis))
     outcomes = [_evaluate(circuit, e, available) for e in circuit.expectations]
     issues = [
-        Issue(
-            severity=Severity.ERROR,
-            code="expectation_failed",
-            message=f"Expectation '{o.description}' failed: {o.detail}",
-        )
-        for o in outcomes
-        if not o.passed
+        _failure_issue(circuit, expectation, outcome)
+        for expectation, outcome in zip(circuit.expectations, outcomes, strict=True)
+        if not outcome.passed
     ]
     return outcomes, issues
+
+
+def _failure_issue(circuit: Circuit, expectation: Expectation, outcome: ExpectationResult) -> Issue:
+    """An ERROR issue. When a ``when`` condition never happens because a sensor's
+    environment does not change enough, the issue names that sensor (code
+    ``expectation_unreached``) so it can be fixed directly."""
+    message = f"Expectation '{outcome.description}' failed: {outcome.detail}"
+    sensor: str | None = None
+    if expectation.when is not None and _NEVER_HAPPENS in outcome.detail:
+        try:
+            signal, _ = parse_condition(expectation.when, stimulus_quantities())
+        except ExpectationSyntaxError:
+            signal = None
+        if signal is not None and signal.kind == "stimulus":
+            sensor = signal.target
+        elif signal is not None:  # a voltage/current condition: blame a static sensor
+            static = [c.id for c in circuit.components if _static_sensor(c)]
+            sensor = static[0] if len(static) == 1 else None
+    return Issue(
+        severity=Severity.ERROR,
+        code="expectation_unreached" if sensor else "expectation_failed",
+        message=message,
+        component_id=sensor,
+    )
+
+
+def _static_sensor(component: Component) -> bool:
+    """A sensor whose environment never changes (no stimulus, or a constant)."""
+    if CATALOG[component.kind].stimulus is None:
+        return False
+    return component.stimulus is None or isinstance(component.stimulus, float | int)
 
 
 def _evaluate(
@@ -132,7 +168,7 @@ def _evaluate(
     if not selected:
         return outcome(
             False,
-            f"'{expectation.when}' never happens in the {analysis}; make the stimulus or "
+            f"'{expectation.when}' {_NEVER_HAPPENS} in the {analysis}; make the stimulus or "
             "sweep reach that condition.",
         )
     unit = _unit(circuit, signal)

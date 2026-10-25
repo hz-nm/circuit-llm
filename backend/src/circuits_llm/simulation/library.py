@@ -16,7 +16,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Final
 
-from circuits_llm.domain import ComponentKind
+from circuits_llm.domain import CATALOG, Component, ComponentKind, PinBehavior
+from circuits_llm.domain.arduino import ARDUINO_LOGIC_V, DEFAULT_PWM_HZ, rule_condition
 
 # --------------------------------------------------------------------------- discrete models
 
@@ -487,6 +488,84 @@ def sensor_subckt(kind: ComponentKind, model: str | None) -> str:
             raise ValueError(f"{kind} is not a sensor")
 
 
+# --------------------------------------------------------------------------- arduino
+#
+# Each Arduino is its own subcircuit (its pins are programmed per instance). Ports are
+# the connected pins in catalog order. Programmed outputs drive through the ATmega's
+# ~25 ohm output resistance; inputs are high impedance.
+
+ARDUINO_PIN_OHMS: Final = 25.0
+_ARDUINO_EDGE_S: Final = 100e-9
+_RULE_WIDTH_V: Final = 0.01  # tanh width of a 'rule' threshold
+
+
+def arduino_node(pin: str) -> str:
+    return "p_" + pin.lower()
+
+
+def _pin_drive(behavior: PinBehavior, target: str, gnd: str, nodes: dict[str, str]) -> str:
+    """One element setting internal node ``target`` to the pin's 0/5 V drive."""
+    high = ARDUINO_LOGIC_V
+    name = behavior.pin
+    match behavior.output:
+        case "high" | "low":
+            level = high if behavior.output == "high" else 0.0
+            return f"Vdrv_{name} {target} {gnd} DC {level:g}"
+        case "blink" | "pwm":
+            if behavior.output == "blink":
+                period = behavior.period or 1.0
+            else:
+                period = 1.0 / (behavior.frequency or DEFAULT_PWM_HZ)
+            duty = behavior.duty if behavior.duty is not None else 0.5
+            if duty <= 1e-3 or duty >= 1 - 1e-3:
+                return f"Vdrv_{name} {target} {gnd} DC {high if duty > 0.5 else 0:g}"
+            width = max(duty * period - _ARDUINO_EDGE_S, _ARDUINO_EDGE_S)
+            pulse = (
+                f"PULSE(0 {high:g} 0 {_ARDUINO_EDGE_S:g} {_ARDUINO_EDGE_S:g} {width:g} {period:g})"
+            )
+            return f"Vdrv_{name} {target} {gnd} DC 0 {pulse}"
+        case "rule":
+            signal, operator, threshold = rule_condition(behavior)
+            if signal.target not in nodes:
+                raise ValueError(f"rule input {signal.target} is not connected")
+            reading = f"V({nodes[signal.target]},{gnd})"
+            margin = (
+                f"({reading}-{threshold:g})"
+                if operator in (">", ">=")
+                else f"({threshold:g}-{reading})"
+            )
+            return f"Bdrv_{name} {target} {gnd} V={high:g}*0.5*(1+tanh({margin}/{_RULE_WIDTH_V:g}))"
+
+
+def arduino_subckt(component: Component) -> tuple[str, str]:
+    """(subcircuit name, text) for one Arduino instance."""
+    name = f"ARD_{component.id.upper()}"
+    spec = CATALOG[ComponentKind.ARDUINO_UNO]
+    ports = [pin.name for pin in spec.pins if pin.name in component.pins]
+    nodes = {pin: arduino_node(pin) for pin in ports}
+    gnd = nodes["GND"]
+    lines = [f".subckt {name} {' '.join(nodes[p] for p in ports)}"]
+    if "5V" in nodes:
+        lines += [f"Vrail5 i_5v {gnd} DC 5", f"Rrail5 i_5v {nodes['5V']} 0.1"]
+    if "3V3" in nodes:
+        lines += [f"Vrail3 i_3v3 {gnd} DC 3.3", f"Rrail3 i_3v3 {nodes['3V3']} 0.5"]
+    behaviors = {b.pin: b for b in component.behavior or []}
+    for pin in ports:
+        node = nodes[pin]
+        if pin.startswith("A"):
+            lines.append(f"Rin_{pin} {node} {gnd} 100Meg")
+        elif pin.startswith("D"):
+            behavior = behaviors.get(pin)
+            if behavior is None:
+                lines.append(f"Rin_{pin} {node} {gnd} 10Meg")
+                continue
+            inner = "i_" + pin.lower()
+            lines.append(_pin_drive(behavior, inner, gnd, nodes))
+            lines.append(f"Rout_{pin} {inner} {node} {ARDUINO_PIN_OHMS:g}")
+    lines.append(".ends")
+    return name, "\n".join(lines)
+
+
 # --------------------------------------------------------------------------- library section
 
 
@@ -495,10 +574,12 @@ def library_text(
     opamps: Iterable[tuple[str, bool]],
     logic: Iterable[tuple[ComponentKind, str, bool]] = (),
     sensors: Iterable[tuple[ComponentKind, str | None]] = (),
+    custom: Iterable[tuple[str, str]] = (),
 ) -> str:
     """Deduplicated library section for the models, op-amps, gates and sensors in use."""
     cards = sorted({m.spice_name: m.text for m in models}.items())
     subckts = {opamp_subckt_name(m, s): opamp_subckt(m, s) for m, s in opamps}
     subckts |= {logic_subckt_name(k, m, s): logic_subckt(k, m, s) for k, m, s in logic}
     subckts |= {sensor_subckt_name(k, m): sensor_subckt(k, m) for k, m in sensors}
+    subckts |= dict(custom)  # per-instance subcircuits, e.g. programmed Arduinos
     return "\n".join([text for _, text in cards] + [text for _, text in sorted(subckts.items())])

@@ -29,7 +29,8 @@ from .contracts import (
     Planned,
     ValidationFailed,
 )
-from .parsing import parse_model_output
+from .focused import fill_missing_behaviors, fix_unreached_stimuli
+from .parsing import ParseResult, parse_model_output
 from .planner import (
     Plan,
     build_planner_messages,
@@ -131,13 +132,15 @@ async def _run_endpoint(
             return
         logger.debug("endpoint %s raw answer: %.2000s", endpoint.id, completion.text)
 
-        parsed = parse_model_output(completion.text)
-        problems = list(parsed.problems)
-        warnings = list(parsed.warnings)
-        if parsed.circuit is not None and extra_checks:
-            issues = await _run_extra_checks(parsed.circuit, extra_checks)
-            problems = [i.message for i in issues if i.severity is Severity.ERROR]
-            warnings += [i for i in issues if i.severity is Severity.WARNING]
+        # Focused follow-up questions fix what weak models reliably omit, without a full
+        # repair round (which tends to reproduce the same answer).
+        text = await fill_missing_behaviors(completion.text, provider) or completion.text
+        parsed, problems, warnings, issues = await _validate(text, extra_checks)
+        unreached = [i for i in issues if i.code == "expectation_unreached" and i.component_id]
+        if unreached and parsed.circuit is not None:
+            fixed = await fix_unreached_stimuli(text, unreached, parsed.circuit, provider)
+            if fixed is not None:
+                parsed, problems, warnings, issues = await _validate(fixed, extra_checks)
         if not problems:
             logger.info("endpoint %s produced a valid answer on attempt %d", endpoint.id, attempt)
             yield DesignCompleted(
@@ -189,6 +192,21 @@ async def _complete_with_retry(
             )
             await asyncio.sleep(RETRY_BACKOFF_S)
     raise AssertionError("unreachable: the retry loop always returns or raises")
+
+
+async def _validate(
+    text: str, extra_checks: Sequence[ExtraCheck]
+) -> tuple[ParseResult, list[str], list[Issue], list[Issue]]:
+    """Parse and check an answer: (parsed, problems, warnings, extra-check issues)."""
+    parsed = parse_model_output(text)
+    problems = list(parsed.problems)
+    warnings = list(parsed.warnings)
+    issues: list[Issue] = []
+    if parsed.circuit is not None and extra_checks:
+        issues = await _run_extra_checks(parsed.circuit, extra_checks)
+        problems = [i.message for i in issues if i.severity is Severity.ERROR]
+        warnings += [i for i in issues if i.severity is Severity.WARNING]
+    return parsed, problems, warnings, issues
 
 
 async def _make_plan(provider: Provider, request: DesignRequest, endpoint_id: str) -> Plan:

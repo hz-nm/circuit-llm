@@ -11,7 +11,17 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
-from circuits_llm.domain import Circuit, Issue, Severity, Transient, check_circuit, to_mermaid
+from circuits_llm.domain import (
+    Circuit,
+    ComponentKind,
+    Issue,
+    Severity,
+    Transient,
+    check_circuit,
+    to_mermaid,
+)
+from circuits_llm.domain.arduino import sketch
+from circuits_llm.domain.expectations import ExpectationSyntaxError
 from circuits_llm.llm import run_design
 from circuits_llm.llm.contracts import (
     MAX_HISTORY_TURNS,
@@ -48,7 +58,21 @@ INTERRUPTED_REPLY: Final = "Stopped before an answer was ready."
 
 def version_out(record: VersionRecord) -> VersionOut:
     circuit = record.circuit
-    return VersionOut.from_record(record, check_circuit(circuit), to_mermaid(circuit))
+    return VersionOut.from_record(
+        record, check_circuit(circuit), to_mermaid(circuit), arduino_sketches(circuit)
+    )
+
+
+def arduino_sketches(circuit: Circuit) -> dict[str, str]:
+    """Generated ``.ino`` code per Arduino (skipping any whose behaviours have ERC errors)."""
+    sketches: dict[str, str] = {}
+    for component in circuit.components:
+        if component.kind is ComponentKind.ARDUINO_UNO:
+            try:
+                sketches[component.id] = sketch(component)
+            except ExpectationSyntaxError:
+                continue  # reported by the ERC
+    return sketches
 
 
 # --------------------------------------------------------------------------- projects

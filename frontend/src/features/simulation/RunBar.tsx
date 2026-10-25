@@ -30,7 +30,7 @@ export function RunBar() {
   const session = useSimulationSession();
   const { version, status, running, run, stop, autoRun, setAutoRun, checks, navigate } = session;
   // Failed expectations are also error checks; the expectations chip covers them, so skip them here.
-  const ratingChecks = checks.filter((c) => c.code !== "expectation_failed");
+  const ratingChecks = checks.filter((c) => !c.code.startsWith("expectation_"));
   const ratingErrors = ratingChecks.filter((c) => c.severity === "error").length;
   const ratingWarnings = ratingChecks.length - ratingErrors;
   const settled = status.kind === "done" || status.kind === "ready";

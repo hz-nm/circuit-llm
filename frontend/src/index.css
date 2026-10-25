@@ -46,6 +46,7 @@
   --sch-body: #ffffff;
   --sch-highlight: #dc2626;
   --sch-grid: #e8ebf0;
+  --sch-flow: #d97706;
   color-scheme: light;
 }
 
@@ -73,6 +74,7 @@
   --sch-body: #10151c;
   --sch-highlight: #ff7a7a;
   --sch-grid: #1b222c;
+  --sch-flow: #fbbf24;
   color-scheme: dark;
 }
 

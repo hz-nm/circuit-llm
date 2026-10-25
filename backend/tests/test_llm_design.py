@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Sequence
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import httpx
+import pytest
 
+from circuits_llm.domain import Circuit, Issue
 from circuits_llm.llm import (
     AttemptStarted,
     Completion,
@@ -16,6 +19,7 @@ from circuits_llm.llm import (
     DesignRequest,
     EndpointFailed,
     ErrorKind,
+    ExtraCheck,
     Message,
     ModelEndpoint,
     Planned,
@@ -26,6 +30,7 @@ from circuits_llm.llm import (
     run_design,
 )
 from circuits_llm.llm.prompts import FEW_SHOT_EXAMPLES
+from circuits_llm.simulation import NgspiceSimulator, locate_ngspice, simulation_issues
 
 VALID_ANSWER = json.dumps(FEW_SHOT_EXAMPLES[0][1])
 NO_GROUND = json.dumps(
@@ -69,6 +74,7 @@ def _run(
     request: DesignRequest | None = None,
     *,
     plan_first: bool = False,
+    extra_checks: Sequence[ExtraCheck] = (),
 ) -> list[DesignEvent]:
     def factory(endpoint: ModelEndpoint, client: httpx.AsyncClient) -> Provider:
         return providers[endpoint.id]
@@ -81,6 +87,7 @@ def _run(
                 client=client,
                 provider_factory=factory,
                 plan_first=plan_first,
+                extra_checks=extra_checks,
             )
             return [event async for event in stream]
 
@@ -160,3 +167,44 @@ def test_unusable_plan_falls_back_to_every_family() -> None:
     assert isinstance(planned, Planned) and planned.fallback
     assert '"npn"' in provider.calls[1][0].content
     assert isinstance(events[-1], DesignCompleted)
+
+
+def test_unprogrammed_arduino_gets_a_focused_follow_up() -> None:
+    answer = json.loads(json.dumps(FEW_SHOT_EXAMPLES[-1][1]))  # the Arduino night light
+    arduino = answer["circuit"]["components"][0]
+    assert arduino["kind"] == "arduino_uno"
+    del arduino["behavior"]  # what weak models do
+    fill = '{"behavior": [{"pin": "D9", "output": "rule", "when": "A0 > 2.5"}]}'
+    provider = FakeProvider([json.dumps(answer), fill])
+
+    events = _run({"a": provider}, DesignRequest(user_message="Arduino night light"))
+
+    completed = events[-1]
+    assert isinstance(completed, DesignCompleted) and completed.circuit is not None
+    assert completed.circuit.components[0].behavior is not None
+    assert [type(e) for e in events].count(AttemptStarted) == 1  # no repair round needed
+    question = provider.calls[1][-1].content
+    assert "D9 -> net PIN9" in question and "A0 -> net SENSE" in question
+
+
+@pytest.mark.skipif(locate_ngspice() is None, reason="ngspice not found")
+def test_static_sensor_gets_a_focused_stimulus_fix() -> None:
+    # The LDR street lamp with its light profile removed: "lamp on at night" can never
+    # be exercised, so the loop asks for the sensor's stimulus instead of a full repair.
+    answer = json.loads(json.dumps(next(a for r, a, _ in FEW_SHOT_EXAMPLES if "dusk" in r)))
+    ldr = next(c for c in answer["circuit"]["components"] if c["kind"] == "ldr")
+    del ldr["stimulus"]
+    profile = '{"stimulus": {"shape": "pwl", "points": [[0, 1000], [0.5, 0.5], [1, 1000]]}}'
+    provider = FakeProvider([json.dumps(answer), profile])
+    simulator = NgspiceSimulator(cast(Path, locate_ngspice()))
+
+    async def simulate(circuit: Circuit) -> list[Issue]:
+        return await simulation_issues(simulator, circuit)
+
+    events = _run({"a": provider}, extra_checks=[simulate])
+
+    completed = events[-1]
+    assert isinstance(completed, DesignCompleted), events[-1]
+    assert completed.circuit is not None
+    assert [type(e) for e in events].count(AttemptStarted) == 1  # fixed without a repair round
+    assert "LDR1" in provider.calls[1][-1].content

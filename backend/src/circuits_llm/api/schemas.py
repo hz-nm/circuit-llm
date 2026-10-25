@@ -135,9 +135,16 @@ class VersionOut(_Schema):
     circuit: Circuit
     issues: list[Issue]
     mermaid: str
+    sketches: dict[str, str] = Field(default_factory=dict[str, str])  # Arduino id -> .ino
 
     @classmethod
-    def from_record(cls, record: VersionRecord, issues: list[Issue], mermaid: str) -> VersionOut:
+    def from_record(
+        cls,
+        record: VersionRecord,
+        issues: list[Issue],
+        mermaid: str,
+        sketches: dict[str, str] | None = None,
+    ) -> VersionOut:
         return cls(
             number=record.number,
             source=record.source,
@@ -145,6 +152,7 @@ class VersionOut(_Schema):
             circuit=record.circuit,
             issues=issues,
             mermaid=mermaid,
+            sketches=sketches or {},
         )
 
 

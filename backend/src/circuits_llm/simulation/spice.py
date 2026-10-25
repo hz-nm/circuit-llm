@@ -41,6 +41,7 @@ from .library import (
     OPAMP_MODELS,
     SENSOR_KINDS,
     DeviceModel,
+    arduino_subckt,
     discrete_model,
     library_text,
     logic_subckt_name,
@@ -91,6 +92,7 @@ _ELEMENT_LETTER: Final[dict[ComponentKind, str]] = {
     ComponentKind.GAS_SENSOR: "X",
     ComponentKind.PIR: "X",
     ComponentKind.POTENTIOMETER: "X",
+    ComponentKind.ARDUINO_UNO: "X",
 }
 _PASSIVES: Final = frozenset(
     {ComponentKind.RESISTOR, ComponentKind.CAPACITOR, ComponentKind.INDUCTOR}
@@ -244,10 +246,8 @@ def _current_probe_targets(circuit: Circuit) -> list[Component]:
         component = circuit.component(probe.target)
         if component is None:
             raise SpiceEmissionError(f"current probe target '{probe.target}' is not a component")
-        if len(CATALOG[component.kind].pins) != 2:
-            raise SpiceEmissionError(
-                f"current probes need a two-pin component; '{component.id}' is not"
-            )
+        if len(CATALOG[component.kind].pins) != 2 and component.kind not in _TRANSISTORS:
+            continue  # the ERC warns; a skipped plot never fails the simulation
         targets.setdefault(component.id, component)
     return list(targets.values())
 
@@ -295,6 +295,9 @@ def _traces(circuit: Circuit, names: _Names) -> tuple[TraceSpec, ...]:
             continue
         component = circuit.component(probe.target)
         assert component is not None  # validated by _current_probe_targets
+        measured = component.id in names.sense_source
+        if not measured and component.kind is not ComponentKind.VOLTAGE_SOURCE:
+            continue  # unsupported current probe: skipped (the ERC warns)
         vector = _current_vector(component, names)
         traces.setdefault(vector, _current_trace(vector, component, probed=True))
 
@@ -453,6 +456,7 @@ class _Emitted:
     sensors: list[tuple[ComponentKind, str | None]] = field(
         default_factory=list[tuple[ComponentKind, str | None]]
     )
+    custom: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
 
 
 def _emit_component(component: Component, names: _Names, out: _Emitted) -> None:
@@ -473,6 +477,13 @@ def _emit_component(component: Component, names: _Names, out: _Emitted) -> None:
         model, supplies = _logic_model(component, spec)
         out.logic.append((component.kind, model, supplies))
         out.lines.append(f"{element} {nodes} {logic_subckt_name(component.kind, model, supplies)}")
+    elif component.kind is ComponentKind.ARDUINO_UNO:
+        try:
+            name, text = arduino_subckt(component)
+        except ValueError as exc:
+            raise SpiceEmissionError(f"{component.id}: {exc}") from exc
+        out.custom.append((name, text))
+        out.lines.append(f"{element} {nodes} {name}")
     elif component.kind in SENSOR_KINDS:
         _emit_sensor(component, spec, element, nodes, names, out)
     elif component.kind is ComponentKind.LAMP:
@@ -571,7 +582,9 @@ def _iter_lines(circuit: Circuit, names: _Names) -> Iterator[str]:
     for component in circuit.components:
         _emit_component(component, names, emitted)
     yield from emitted.lines
-    library = library_text(emitted.models, emitted.opamps, emitted.logic, emitted.sensors)
+    library = library_text(
+        emitted.models, emitted.opamps, emitted.logic, emitted.sensors, emitted.custom
+    )
     if library:
         yield library
 

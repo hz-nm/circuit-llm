@@ -356,6 +356,8 @@ export interface components {
             ac_magnitude?: number | null;
             /** Stimulus */
             stimulus?: number | (components["schemas"]["SineWave"] | components["schemas"]["PulseWave"] | components["schemas"]["PwlWave"]) | null;
+            /** Behavior */
+            behavior?: components["schemas"]["PinBehavior"][] | null;
             /** Label */
             label?: string | null;
         };
@@ -363,7 +365,7 @@ export interface components {
          * ComponentKind
          * @enum {string}
          */
-        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "ldr" | "thermistor" | "photodiode" | "phototransistor" | "gas_sensor" | "pir" | "potentiometer";
+        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "ldr" | "thermistor" | "photodiode" | "phototransistor" | "gas_sensor" | "pir" | "potentiometer" | "arduino_uno";
         /** ComponentSpecOut */
         ComponentSpecOut: {
             kind: components["schemas"]["ComponentKind"];
@@ -614,6 +616,31 @@ export interface components {
          * @enum {string}
          */
         OutputMode: "auto" | "json_schema" | "json_object" | "text";
+        /**
+         * PinBehavior
+         * @description How a microcontroller drives one output pin (see :mod:`.arduino`).
+         *
+         *     ``high``/``low``: constant. ``blink``: on/off with ``period`` seconds and ``duty``
+         *     (fraction on, default 0.5). ``pwm``: ``duty`` 0..1 at ``frequency`` Hz (default 490).
+         *     ``rule``: high while ``when`` holds, e.g. ``"A0 < 2.5"``.
+         */
+        PinBehavior: {
+            /** Pin */
+            pin: string;
+            /**
+             * Output
+             * @enum {string}
+             */
+            output: "high" | "low" | "blink" | "pwm" | "rule";
+            /** Period */
+            period?: number | null;
+            /** Duty */
+            duty?: number | null;
+            /** Frequency */
+            frequency?: number | null;
+            /** When */
+            when?: string | null;
+        };
         /** PinOut */
         PinOut: {
             /** Name */
@@ -877,6 +904,10 @@ export interface components {
             issues: components["schemas"]["Issue"][];
             /** Mermaid */
             mermaid: string;
+            /** Sketches */
+            sketches?: {
+                [key: string]: string;
+            };
         };
         /** VersionSummary */
         VersionSummary: {

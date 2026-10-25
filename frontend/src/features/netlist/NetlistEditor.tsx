@@ -3,6 +3,7 @@ import { ApiError, errorMessage } from "../../api/client";
 import { useSaveCircuit } from "../../api/queries";
 import type { Circuit, VersionOut } from "../../api/types";
 import { Button } from "../../ui/Button";
+import { SketchSection } from "./SketchSection";
 import { SpiceActions } from "./SpiceActions";
 
 interface Props {
@@ -100,6 +101,7 @@ export function NetlistEditor({ projectId, version, onSaved }: Props) {
         spellCheck={false}
         className="min-h-0 flex-1 resize-none bg-sunken p-3 font-mono text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       />
+      {version.sketches && <SketchSection sketches={version.sketches} />}
       <p className="border-t border-line px-3 py-1 text-[11px] text-muted">
         Tab indents · Esc then Tab leaves the editor · Ctrl+S saves. Saved versions are checked by the ERC; errors appear in
         the issues panel.

@@ -41,6 +41,7 @@ class ComponentKind(StrEnum):
     GAS_SENSOR = "gas_sensor"
     PIR = "pir"
     POTENTIOMETER = "potentiometer"
+    ARDUINO_UNO = "arduino_uno"
 
 
 class Category(StrEnum):
@@ -61,6 +62,7 @@ class Family(StrEnum):
     AMPLIFIERS = "amplifiers"
     LOGIC = "logic"
     SENSORS = "sensors"
+    MICROCONTROLLERS = "microcontrollers"
 
 
 FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
@@ -72,6 +74,10 @@ FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
         "sensors driven by a simulated environment: light (LDR, photodiode, "
         "phototransistor), temperature (NTC thermistor), gas (MQ-2/MQ-135), motion (PIR "
         "module) and potentiometers (knob position)"
+    ),
+    Family.MICROCONTROLLERS: (
+        "Arduino Uno whose pins are programmed with simple behaviours: on/off, blink, PWM, "
+        "or 'high when an analog input crosses a threshold'"
     ),
 }
 
@@ -658,8 +664,50 @@ _LOGIC_SPECS: Final[tuple[ComponentSpec, ...]] = (
     ),
 )
 
+ARDUINO_DIGITAL_PINS: Final = tuple(f"D{n}" for n in range(2, 14))
+ARDUINO_PWM_PINS: Final = frozenset({"D3", "D5", "D6", "D9", "D10", "D11"})
+ARDUINO_ANALOG_PINS: Final = tuple(f"A{n}" for n in range(6))
+
+_ARDUINO_SPEC: Final = ComponentSpec(
+    kind=ComponentKind.ARDUINO_UNO,
+    display_name="Arduino Uno",
+    category=Category.INTEGRATED,
+    family=Family.MICROCONTROLLERS,
+    designator_prefix="U",
+    description=(
+        "Arduino Uno (5 V logic, powered over USB). Connect only the pins you use, and "
+        "always 'GND'. '5V' and '3V3' can power small circuits. Digital pins D2-D13 are "
+        "outputs programmed by 'behavior' (PWM only on D3, D5, D6, D9, D10, D11); analog "
+        "pins A0-A5 are inputs read by 'rule' behaviours. Every connected D pin MUST have an "
+        "entry in 'behavior' (that is how the Arduino is programmed; never write code). "
+        "A pin can source at most about "
+        "20 mA: drive LEDs through a resistor and larger loads through a transistor."
+    ),
+    pins=(
+        PinSpec("5V", "5 V supply output", aliases=("+5v", "5v", "vcc"), optional=True),
+        PinSpec("3V3", "3.3 V supply output", aliases=("3.3v", "3v3", "+3v3"), optional=True),
+        PinSpec("GND", "ground", aliases=("gnd", "ground", "0v")),
+        *(
+            PinSpec(
+                pin,
+                "digital output" + (" (PWM)" if pin in ARDUINO_PWM_PINS else ""),
+                aliases=(pin[1:], f"pin{pin[1:]}", f"pin_{pin[1:]}", f"digital{pin[1:]}"),
+                optional=True,
+            )
+            for pin in ARDUINO_DIGITAL_PINS
+        ),
+        *(
+            PinSpec(pin, "analog input", aliases=(f"analog{pin[1:]}",), optional=True)
+            for pin in ARDUINO_ANALOG_PINS
+        ),
+    ),
+    kind_aliases=("arduino", "uno", "arduino_uno_r3", "microcontroller", "mcu", "atmega328p"),
+    dc_paths=(("5V", "GND"), ("3V3", "GND")),
+    driven_pins=("5V", "3V3", *ARDUINO_DIGITAL_PINS),
+)
+
 CATALOG: Final[dict[ComponentKind, ComponentSpec]] = {
-    spec.kind: spec for spec in (*_SPECS, *_LOGIC_SPECS, *_SENSOR_SPECS)
+    spec.kind: spec for spec in (*_SPECS, *_LOGIC_SPECS, *_SENSOR_SPECS, _ARDUINO_SPEC)
 }
 
 _KIND_LOOKUP: Final[dict[str, ComponentKind]] = {

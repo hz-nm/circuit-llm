@@ -11,7 +11,7 @@ export function SimulationView() {
   const { result, version, running, probes, cursor, driver, checks, nav, navigate, setPinned } = useSimulationSession();
   const checksRef = useRef<HTMLElement>(null);
   // Failed expectations have their own panel; Bench checks lists only rating problems.
-  const ratingChecks = checks.filter((c) => c.code !== "expectation_failed");
+  const ratingChecks = checks.filter((c) => !c.code.startsWith("expectation_"));
   const expectationsRef = useRef<HTMLElement>(null);
   const expectations = result?.ok ? (result.expectations ?? []) : [];
 

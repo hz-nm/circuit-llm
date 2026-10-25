@@ -102,6 +102,25 @@ Waveform = Annotated[SineWave | PulseWave | PwlWave, Field(discriminator="shape"
 # --------------------------------------------------------------------------- components
 
 
+MAX_PIN_BEHAVIORS: Final = 18
+
+
+class PinBehavior(StrictModel):
+    """How a microcontroller drives one output pin (see :mod:`.arduino`).
+
+    ``high``/``low``: constant. ``blink``: on/off with ``period`` seconds and ``duty``
+    (fraction on, default 0.5). ``pwm``: ``duty`` 0..1 at ``frequency`` Hz (default 490).
+    ``rule``: high while ``when`` holds, e.g. ``"A0 < 2.5"``.
+    """
+
+    pin: Annotated[str, Field(min_length=2, max_length=4)]
+    output: Literal["high", "low", "blink", "pwm", "rule"]
+    period: PositiveFloat | None = None
+    duty: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] | None = None
+    frequency: PositiveFloat | None = None
+    when: Annotated[str, Field(min_length=3, max_length=48)] | None = None
+
+
 class Component(StrictModel):
     id: Designator
     kind: ComponentKind
@@ -113,6 +132,8 @@ class Component(StrictModel):
     # Sensors only: the environment they sense (light, temperature, ...), as a constant
     # or as a waveform over time. Units are given by the catalog's StimulusSpec.
     stimulus: FiniteFloat | Waveform | None = None
+    # Microcontrollers only: what each output pin does.
+    behavior: Annotated[list[PinBehavior], Field(max_length=MAX_PIN_BEHAVIORS)] | None = None
     label: Annotated[str, Field(max_length=120)] | None = None
 
 

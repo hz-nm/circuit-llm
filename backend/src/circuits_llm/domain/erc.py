@@ -11,7 +11,8 @@ from collections.abc import Iterable, Iterator
 from enum import StrEnum
 from typing import Final
 
-from .catalog import CATALOG, ComponentKind, ComponentSpec
+from .arduino import rule_condition
+from .catalog import ARDUINO_DIGITAL_PINS, ARDUINO_PWM_PINS, CATALOG, ComponentKind, ComponentSpec
 from .circuit import (
     GROUND_NET,
     AcSweep,
@@ -175,14 +176,21 @@ def _check_component(c: Component, spec: ComponentSpec) -> Iterator[Issue]:
                 component=c.id,
             )
     elif c.waveform is not None or c.ac_magnitude is not None:
+        hint = (
+            " An arduino_uno is programmed with 'behavior' instead; the environment goes on "
+            "the sensor as its 'stimulus'."
+            if c.kind is ComponentKind.ARDUINO_UNO
+            else " Sensors take a 'stimulus' instead."
+        )
         yield _error(
             "waveform_on_non_source",
-            f"{name}: only voltage_source and current_source may have 'waveform' "
-            "or 'ac_magnitude'. Sensors take a 'stimulus' instead.",
+            f"{name}: remove 'waveform': only voltage_source and current_source may have "
+            f"'waveform' or 'ac_magnitude'.{hint}",
             component=c.id,
         )
 
     yield from _check_stimulus(c, spec, name)
+    yield from _check_behavior(c, name)
 
     connected = [net for pin, net in c.pins.items() if pin in spec.pin_names]
     if len(connected) >= 2 and len(set(connected)) == 1:
@@ -201,6 +209,76 @@ def _check_component(c: Component, spec: ComponentSpec) -> Iterator[Issue]:
                 "partial_supply",
                 f"{name}: connect both supply pins '{positive}' and '{negative}' (use GND for "
                 f"'{negative}' on a single supply), or neither for an ideal part.",
+                component=c.id,
+            )
+
+
+def _check_behavior(c: Component, name: str) -> Iterator[Issue]:
+    if c.kind is not ComponentKind.ARDUINO_UNO:
+        if c.behavior:
+            yield _error(
+                "behavior_on_non_microcontroller",
+                f"{name}: only an arduino_uno takes 'behavior'; remove it.",
+                component=c.id,
+            )
+        return
+    seen: set[str] = set()
+    for b in c.behavior or []:
+        where = f"{name} pin '{b.pin}'"
+        if b.pin not in ARDUINO_DIGITAL_PINS:
+            yield _error(
+                "bad_behavior_pin",
+                f"{where}: behaviours drive digital pins D2-D13 (analog pins A0-A5 are "
+                "inputs read by a 'rule').",
+                component=c.id,
+            )
+            continue
+        if b.pin in seen:
+            yield _error(
+                "duplicate_behavior", f"{where}: has more than one behaviour.", component=c.id
+            )
+        seen.add(b.pin)
+        if b.pin not in c.pins:
+            yield _warning(
+                "behavior_on_unconnected_pin",
+                f"{where}: has a behaviour but is not connected.",
+                component=c.id,
+            )
+        if b.output == "pwm" and b.pin not in ARDUINO_PWM_PINS:
+            yield _error(
+                "not_a_pwm_pin",
+                f"{where}: PWM works only on D3, D5, D6, D9, D10 and D11.",
+                component=c.id,
+            )
+        if b.output == "blink" and b.period is None:
+            yield _error(
+                "missing_period", f"{where}: a blink needs 'period' in seconds.", component=c.id
+            )
+        if b.output == "pwm" and b.duty is None:
+            yield _error(
+                "missing_duty", f"{where}: PWM needs 'duty' between 0 and 1.", component=c.id
+            )
+        if b.output == "rule":
+            try:
+                signal, _, _ = rule_condition(b)
+            except ExpectationSyntaxError as exc:
+                yield _error("bad_rule", f"{where}: {exc}.", component=c.id)
+                continue
+            if signal.target not in c.pins:
+                yield _error(
+                    "rule_input_unconnected",
+                    f"{where}: its rule reads {signal.target}, which is not connected.",
+                    component=c.id,
+                )
+    for pin in ARDUINO_DIGITAL_PINS:
+        if pin in c.pins and pin not in seen:
+            yield _error(
+                "pin_without_behavior",
+                f"{name} pin '{pin}' is connected but has no behaviour, so it does nothing. "
+                f'Inside the "{c.id}" component object add the key "behavior", for example '
+                f'"behavior": [{{"pin": "{pin}", "output": "rule", "when": "A0 < 2.3"}}] '
+                "(pick the analog input and the threshold in volts it should react to), or "
+                'use "output": "high", "blink" or "pwm".',
                 component=c.id,
             )
 
@@ -405,12 +483,13 @@ def _check_probes(circuit: Circuit) -> Iterator[Issue]:
                 "unknown_probe_component",
                 f"Current probe target '{probe.target}' is not a component id.",
             )
-        elif component.kind not in _TWO_PIN_KINDS:
-            yield _error(
+        elif component.kind not in _TWO_PIN_KINDS and component.kind not in _METERED_THREE_PIN:
+            # A plot request is cosmetic: skip it rather than fail the design.
+            yield _warning(
                 "unsupported_current_probe",
-                f"Current probes are only supported on two-pin components; '{probe.target}' is "
-                f"a {CATALOG[component.kind].display_name.lower()}. "
-                "Probe a series resistor instead.",
+                f"Current probes work on two-pin components and transistors; '{probe.target}' "
+                f"is a {CATALOG[component.kind].display_name.lower()}, so this probe is "
+                "skipped. Probe a series resistor instead.",
                 component=component.id,
             )
 

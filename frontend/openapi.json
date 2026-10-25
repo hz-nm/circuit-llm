@@ -1144,6 +1144,21 @@
             ],
             "title": "Stimulus"
           },
+          "behavior": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PinBehavior"
+                },
+                "type": "array",
+                "maxItems": 18
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Behavior"
+          },
           "label": {
             "anyOf": [
               {
@@ -1196,7 +1211,8 @@
           "phototransistor",
           "gas_sensor",
           "pir",
-          "potentiometer"
+          "potentiometer",
+          "arduino_uno"
         ],
         "title": "ComponentKind"
       },
@@ -1860,6 +1876,85 @@
         "title": "OutputMode",
         "description": "How strictly the provider is asked to emit JSON.\n\n``auto`` picks the strongest mode the provider is known to support and\ndegrades gracefully (schema -> JSON mode -> plain text) when it is rejected."
       },
+      "PinBehavior": {
+        "properties": {
+          "pin": {
+            "type": "string",
+            "maxLength": 4,
+            "minLength": 2,
+            "title": "Pin"
+          },
+          "output": {
+            "type": "string",
+            "enum": [
+              "high",
+              "low",
+              "blink",
+              "pwm",
+              "rule"
+            ],
+            "title": "Output"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "duty": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duty"
+          },
+          "frequency": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frequency"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 48,
+                "minLength": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pin",
+          "output"
+        ],
+        "title": "PinBehavior",
+        "description": "How a microcontroller drives one output pin (see :mod:`.arduino`).\n\n``high``/``low``: constant. ``blink``: on/off with ``period`` seconds and ``duty``\n(fraction on, default 0.5). ``pwm``: ``duty`` 0..1 at ``frequency`` Hz (default 490).\n``rule``: high while ``when`` holds, e.g. ``\"A0 < 2.5\"``."
+      },
       "PinOut": {
         "properties": {
           "name": {
@@ -2510,6 +2605,13 @@
           "mermaid": {
             "type": "string",
             "title": "Mermaid"
+          },
+          "sketches": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Sketches"
           }
         },
         "additionalProperties": false,

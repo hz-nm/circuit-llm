@@ -260,6 +260,7 @@ export const SCHEMATIC_CSS = `
 .sch-probe-badge circle { stroke: var(--sch-bg, #ffffff); stroke-width: 2; }
 .sch-rating-error { fill: var(--sch-highlight, #dc2626); fill-opacity: 0.08; stroke: var(--sch-highlight, #dc2626); stroke-width: 1.5; stroke-dasharray: 4 3; }
 .sch-rating-warn { fill: none; stroke: #d97706; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.sch-flow { fill: none; stroke: var(--sch-flow, #f59e0b); stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 0 14; pointer-events: none; }
 .sch-hitbox { fill: transparent; stroke: none; pointer-events: all; cursor: pointer; }
 .sch-net-label { white-space: pre; }
 .sch-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; pointer-events: stroke; }

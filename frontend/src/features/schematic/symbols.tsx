@@ -48,6 +48,11 @@ export interface SymbolDef {
   draw: (component: Component, connected: ReadonlySet<string>) => ReactNode;
   /** Custom value text for the label (default: value with unit, then model). */
   summary?: (component: Component) => string | null;
+  /**
+   * Per-component box and pin positions, for symbols whose pins depend on what is
+   * connected (Arduino). `pins` above then lists every catalog pin, in order.
+   */
+  geometry?: (component: Component) => { width: number; height: number; pins: readonly PinDef[] };
 }
 
 // ---------------------------------------------------------------------------- helpers
@@ -168,6 +173,49 @@ function sensor(extra: Partial<SymbolDef> & Pick<SymbolDef, "draw">): SymbolDef 
     defaultModel: null,
     ...extra,
   };
+}
+
+// ---------------------------------------------------------------------------- Arduino Uno
+
+const UNO_POWER = ["5V", "3V3", "GND"] as const;
+const UNO_DIGITAL = ["D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13"] as const;
+const UNO_ANALOG = ["A0", "A1", "A2", "A3", "A4", "A5"] as const;
+const UNO_WIDTH = 120;
+const UNO_HEADER = 30;
+const UNO_PITCH = 20;
+
+/** Only connected pins are drawn: power + analog on the left, digital on the right. */
+function unoGeometry(c: Component): { width: number; height: number; pins: PinDef[] } {
+  const left = [...UNO_POWER, ...UNO_ANALOG].filter((p) => c.pins[p] !== undefined);
+  const right = UNO_DIGITAL.filter((p) => c.pins[p] !== undefined);
+  const rows = Math.max(left.length, right.length, 1);
+  const y = (i: number) => UNO_HEADER + UNO_PITCH / 2 + i * UNO_PITCH;
+  return {
+    width: UNO_WIDTH,
+    height: UNO_HEADER + rows * UNO_PITCH + 6,
+    pins: [
+      ...left.map((name, i): PinDef => ({ name, x: 0, y: y(i), side: "WEST" })),
+      ...right.map((name, i): PinDef => ({ name, x: UNO_WIDTH, y: y(i), side: "EAST" })),
+    ],
+  };
+}
+
+/** One-line behaviour summary, e.g. "D9 rule A0 > 2.5 · D13 blink 0.25 s · D3 PWM 25%". */
+function unoSummary(c: Component): string | null {
+  const num = (v: number) => String(Number(v.toPrecision(3)));
+  const parts = (c.behavior ?? []).map((b) => {
+    switch (b.output) {
+      case "blink":
+        return `${b.pin} blink${b.period ? ` ${num(b.period)} s` : ""}`;
+      case "pwm":
+        return `${b.pin} PWM${b.duty !== undefined && b.duty !== null ? ` ${num(b.duty * 100)}%` : ""}`;
+      case "rule":
+        return `${b.pin} rule ${b.when ?? "?"}`;
+      default:
+        return `${b.pin} ${b.output}`;
+    }
+  });
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 // ---------------------------------------------------------------------------- registry
@@ -585,6 +633,48 @@ export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
         <path d="M22.2 7.2L37.8 22.8M37.8 7.2L22.2 22.8" />
       </>
     ),
+  },
+  arduino_uno: {
+    width: UNO_WIDTH,
+    height: UNO_HEADER + UNO_PITCH,
+    // Every catalog pin in order; positions come from geometry() per component.
+    pins: [...UNO_POWER, ...UNO_DIGITAL, ...UNO_ANALOG].map((name): PinDef => ({ name, x: 0, y: 0, side: "WEST", optional: name !== "GND" })),
+    orientation: "fixed",
+    labelSide: "top",
+    valueUnit: null,
+    defaultModel: null,
+    summary: unoSummary,
+    geometry: unoGeometry,
+    draw: (c) => {
+      const g = unoGeometry(c);
+      return (
+        <>
+          <rect x={10} y={0} width={UNO_WIDTH - 20} height={g.height} rx={4} className="sym-body" />
+          <path d={`M10 ${UNO_HEADER - 8}H${UNO_WIDTH - 10}`} strokeWidth={1} />
+          <SymbolText x={UNO_WIDTH / 2} y={11} text="Arduino Uno" size={9} />
+          {g.pins.map((p) => {
+            const west = p.side === "WEST";
+            return (
+              <g key={p.name}>
+                <path d={west ? `M0 ${p.y}H10` : `M${UNO_WIDTH - 10} ${p.y}H${UNO_WIDTH}`} />
+                <text
+                  x={west ? 14 : UNO_WIDTH - 14}
+                  y={p.y}
+                  fontSize={8}
+                  textAnchor={west ? "start" : "end"}
+                  dominantBaseline="central"
+                  fill="currentColor"
+                  stroke="none"
+                  fontFamily="ui-monospace, monospace"
+                >
+                  {p.name}
+                </text>
+              </g>
+            );
+          })}
+        </>
+      );
+    },
   },
 };
 

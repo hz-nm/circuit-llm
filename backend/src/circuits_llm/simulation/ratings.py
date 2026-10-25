@@ -203,7 +203,10 @@ def check_ratings(circuit: Circuit, result: SimulationResult) -> list[Issue]:
     worst: dict[tuple[str, str], tuple[float, _Finding]] = {}
     for signals in _signals(result):
         for component in circuit.components:
-            for score, finding in _check_component(component, signals):
+            findings = _check_component(component, signals)
+            if component.kind is ComponentKind.ARDUINO_UNO:
+                findings = _arduino_pin_checks(circuit, component, signals)
+            for score, finding in findings:
                 key = (component.id, finding.code)
                 if key not in worst or score > worst[key][0]:
                     worst[key] = (score, finding)
@@ -506,3 +509,66 @@ def _logic_input_checks(
                     "a series resistor of at least 10 k.",
                 ),
             )
+
+
+# --------------------------------------------------------------------------- arduino
+
+ARDUINO_PIN_MAX_A: Final = 0.040  # absolute maximum per I/O pin
+ARDUINO_PIN_RECOMMENDED_A: Final = 0.020
+
+
+def _current_into(component: Component, pin: str, s: _Signals) -> Sequence[float] | None:
+    """Current flowing into ``pin`` of ``component``, or None when it is not recorded."""
+    spec = CATALOG[component.kind]
+    current = s.current(component.id)
+    if component.kind in _TRANSISTORS:
+        if pin in ("gate", "base"):
+            return [0.0] * s.points  # MOSFET gates draw nothing; BJT bases little
+        return current if current and pin == spec.pins[0].name else None
+    if len(spec.pins) != 2 or not current:
+        return None
+    return current if pin == spec.pins[0].name else [-i for i in current]
+
+
+def _arduino_pin_checks(
+    circuit: Circuit, component: Component, s: _Signals
+) -> Iterator[tuple[float, _Finding]]:
+    """A programmed pin sources the current flowing into everything else on its net."""
+    nets = circuit.nets()
+    for behavior in component.behavior or []:
+        net = component.pins.get(behavior.pin)
+        if net is None or net == GROUND_NET:
+            continue
+        total = [0.0] * s.points
+        for ref in nets.get(net, []):
+            if ref.component_id == component.id:
+                continue
+            other = circuit.component(ref.component_id)
+            into = _current_into(other, ref.pin, s) if other is not None else None
+            if into is None:
+                break  # an unmeasured branch: the pin current is unknown
+            total = [t + i for t, i in zip(total, into, strict=False)]
+        else:
+            amps = _peak(total)  # the pin limit applies whenever the pin drives, not on average
+            name = f"{component.id} pin {behavior.pin}"
+            fix = "add a series resistor, or drive the load through a transistor (e.g. IRLZ44N)"
+            if amps > ARDUINO_PIN_MAX_A:
+                yield (
+                    amps / ARDUINO_PIN_MAX_A,
+                    _Finding(
+                        Severity.ERROR,
+                        f"pin_overcurrent_{behavior.pin}",
+                        f"{name} supplies {format_si(amps, 'A')} {s.where(total)}, above the "
+                        f"{format_si(ARDUINO_PIN_MAX_A, 'A')} absolute maximum: {fix}.",
+                    ),
+                )
+            elif amps > ARDUINO_PIN_RECOMMENDED_A:
+                yield (
+                    amps / ARDUINO_PIN_RECOMMENDED_A,
+                    _Finding(
+                        Severity.WARNING,
+                        f"pin_current_{behavior.pin}",
+                        f"{name} supplies {format_si(amps, 'A')} {s.where(total)}; keep pins under "
+                        f"{format_si(ARDUINO_PIN_RECOMMENDED_A, 'A')}: {fix}.",
+                    ),
+                )

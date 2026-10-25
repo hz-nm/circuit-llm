@@ -8,6 +8,8 @@ import { MeterCard } from "../multimeter/MeterCard";
 import { currentsAt, netKey, stimuliAt, voltagesAt } from "../simulation/live";
 import type { SimulationSession } from "../simulation/session";
 import { seriesColor } from "../simulation/UPlotChart";
+import { pinCurrents, type FlowMode } from "./currentFlow";
+import { FlowLayer } from "./FlowLayer";
 import { layoutCircuit, type ElkLike } from "./layout";
 import { LiveDock } from "./LiveDock";
 import { SCHEMATIC_CSS, SchematicContent, type LiveOverlay, type ProbeHandlers, type RatingMark } from "./SchematicSvg";
@@ -24,6 +26,14 @@ function loadElk(): Promise<ElkLike> {
 const NO_SUBSCRIBE = () => () => {};
 const NULL_SNAPSHOT = () => null;
 const CARD_WIDTH = 240;
+
+function initialFlowMode(): FlowMode {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "off" : "conventional";
+  } catch {
+    return "conventional";
+  }
+}
 
 export interface SchematicViewProps {
   circuit: Circuit;
@@ -55,6 +65,13 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
   const voltages = useMemo(() => (live ? voltagesAt(live, x) : null), [live, x]);
   const currents = useMemo(() => (live ? currentsAt(live, x) : null), [live, x]);
   const stimuli = useMemo(() => (live ? stimuliAt(live, x) : null), [live, x]);
+
+  // Current flow: currents into every pin at the cursor (recorded + Kirchhoff), drawn as moving dots.
+  const [flowMode, setFlowMode] = useState<FlowMode>(initialFlowMode);
+  const flowPins = useMemo(
+    () => (currents ? pinCurrents(circuit, (id) => currents.get(netKey(id))) : null),
+    [circuit, currents],
+  );
 
   const highlight = useMemo(
     () => new Set((issues ?? []).filter((i) => i.severity === "error" && i.component_id).map((i) => i.component_id!)),
@@ -174,6 +191,20 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
             Net voltages
           </label>
         )}
+        {live && (
+          <label className="flex items-center gap-1.5 px-1 text-xs text-muted" title="Animate the current in the wires (speed ∝ log |I|)">
+            Current flow
+            <select
+              value={flowMode}
+              onChange={(e) => setFlowMode(e.target.value as FlowMode)}
+              className="rounded-md border border-line bg-bg px-1 py-0.5 text-xs text-ink"
+            >
+              <option value="off">Off</option>
+              <option value="conventional">Conventional</option>
+              <option value="electrons">Electrons</option>
+            </select>
+          </label>
+        )}
         <Button size="sm" variant="ghost" onClick={zoomOut} aria-label="Zoom out" title="Zoom out (−)">
           −
         </Button>
@@ -210,6 +241,7 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
             <style>{SCHEMATIC_CSS}</style>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
               <SchematicContent schematic={schematic} highlight={highlight} ratings={ratings} live={overlay} probe={probeHandlers} />
+              {flowPins && <FlowLayer schematic={schematic} pins={flowPins} mode={flowMode} />}
             </g>
           </svg>
         )}
