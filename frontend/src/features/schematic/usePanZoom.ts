@@ -62,7 +62,8 @@ export function usePanZoom(containerRef: RefObject<HTMLElement>, content: { widt
   }, [containerRef, zoomAt]);
 
   const onPointerDown = (event: ReactPointerEvent) => {
-    if (event.button !== 0) return;
+    // Form controls inside the canvas (sensor sliders) keep their own drag.
+    if (event.button !== 0 || (event.target instanceof Element && event.target.closest("input, select, button"))) return;
     // Capture only once the pointer really moves, so a plain click still reaches wires.
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
     lastGestureDragged.current = false;

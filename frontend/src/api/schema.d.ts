@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/versions/{number}/explore/{sensor_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Explore Sensor
+         * @description Sweep one sensor's stimulus across its range (up and down) for the live slider.
+         */
+        post: operations["explore_sensor_api_projects__project_id__versions__number__explore__sensor_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/versions/{number}/spice": {
         parameters: {
             query?: never;
@@ -509,6 +529,29 @@ export interface components {
             passed: boolean;
             /** Detail */
             detail: string;
+        };
+        /**
+         * ExploreResult
+         * @description One sensor's stimulus swept across its range (DC steady states), up and then down.
+         *
+         *     The x axis of ``up``/``down`` is the stimulus itself (e.g. lux). Running both
+         *     directions captures hysteresis: a Schmitt trigger switches at different levels.
+         */
+        ExploreResult: {
+            /** Ok */
+            ok: boolean;
+            /** Sensor */
+            sensor: string;
+            /** Quantity */
+            quantity: string;
+            /** Unit */
+            unit: string;
+            /** Log Scale */
+            log_scale: boolean;
+            up?: components["schemas"]["SweepResult"] | null;
+            down?: components["schemas"]["SweepResult"] | null;
+            /** Error */
+            error?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1569,6 +1612,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SimulationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    explore_sensor_api_projects__project_id__versions__number__explore__sensor_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                number: number;
+                sensor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExploreResult"];
                 };
             };
             /** @description Validation Error */

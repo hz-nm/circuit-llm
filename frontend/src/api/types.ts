@@ -30,6 +30,7 @@ export type SimulationResult = Schemas["SimulationResult"];
 export type AnalysisResult = SimulationResult["analyses"] extends (infer T)[] | undefined ? T : never;
 export type OperatingPointResult = Schemas["OperatingPointResult"];
 export type SweepResult = Schemas["SweepResult"];
+export type ExploreResult = Schemas["ExploreResult"];
 export type Trace = Schemas["Trace"];
 export type Axis = Schemas["Axis"];
 

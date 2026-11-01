@@ -54,6 +54,23 @@ class SweepResult(_Result):
 AnalysisResult = Annotated[OperatingPointResult | SweepResult, Field(discriminator="type")]
 
 
+class ExploreResult(_Result):
+    """One sensor's stimulus swept across its range (DC steady states), up and then down.
+
+    The x axis of ``up``/``down`` is the stimulus itself (e.g. lux). Running both
+    directions captures hysteresis: a Schmitt trigger switches at different levels.
+    """
+
+    ok: bool
+    sensor: str
+    quantity: str  # "light", "temperature", ...
+    unit: str
+    log_scale: bool
+    up: SweepResult | None = None
+    down: SweepResult | None = None
+    error: str | None = None
+
+
 class ExpectationResult(_Result):
     """Whether one of the circuit's expectations held in the simulation."""
 

@@ -133,6 +133,26 @@ def _current_trace(vector: str, component: Component, *, probed: bool) -> TraceS
 
 
 @dataclass(frozen=True, slots=True)
+class StimulusSweep:
+    """Explore mode: sweep one sensor's stimulus up and then down (DC steady states).
+
+    On a log scale the swept control value is log10(stimulus), so decades get equal
+    resolution; ``start``/``stop`` are always in stimulus units.
+    """
+
+    sensor_id: str
+    start: float
+    stop: float
+    points: int
+    log_scale: bool
+
+    def control_range(self) -> tuple[float, float]:
+        if self.log_scale:
+            return math.log10(self.start), math.log10(self.stop)
+        return self.start, self.stop
+
+
+@dataclass(frozen=True, slots=True)
 class PlannedAnalysis:
     analysis: Analysis
     command: str  # ngspice control command, e.g. "tran 1e-06 0.001 0 1e-06"
@@ -196,6 +216,7 @@ class _Names:
     sense_node: dict[str, str]  # probed component id -> node between sense source and pin
     stimulus_source: dict[str, str] = field(default_factory=dict[str, str])  # sensor id ->
     stimulus_node: dict[str, str] = field(default_factory=dict[str, str])  # sensor id -> node
+    explore: StimulusSweep | None = None
 
 
 def _assign_names(circuit: Circuit, current_probes: list[Component]) -> _Names:
@@ -415,7 +436,15 @@ def _emit_sensor(
     else:
         dc, wave = _waveform_spec(stimulus)
     stim_node = names.stimulus_node[component.id]
-    out.lines.append(f"{names.stimulus_source[component.id]} {stim_node} 0 DC {_num(dc)}{wave}")
+    source = names.stimulus_source[component.id]
+    explore = names.explore
+    if explore is not None and explore.sensor_id.lower() == component.id.lower():
+        control = f"{stim_node}_ctl"
+        out.lines.append(f"{source} {control} 0 DC {_num(explore.control_range()[0])}")
+        level = f"pow(10,V({control}))" if explore.log_scale else f"V({control})"
+        out.lines.append(f"B{source} {stim_node} 0 V={level}")
+    else:
+        out.lines.append(f"{source} {stim_node} 0 DC {_num(dc)}{wave}")
 
     model = component.model or spec.default_model
     params = ""
@@ -589,13 +618,48 @@ def _iter_lines(circuit: Circuit, names: _Names) -> Iterator[str]:
         yield library
 
 
-def to_spice(circuit: Circuit) -> SpiceDeck:
-    """Translate a circuit into an ngspice deck. Raises :class:`SpiceEmissionError`."""
+def _plan_explore(
+    circuit: Circuit, names: _Names, sweep: StimulusSweep
+) -> tuple[PlannedAnalysis, ...]:
+    sensor = circuit.component(sweep.sensor_id)
+    spec = CATALOG[sensor.kind].stimulus if sensor is not None else None
+    if sensor is None or spec is None:
+        raise SpiceEmissionError(f"'{sweep.sensor_id}' is not a sensor in this circuit")
+    names.explore = StimulusSweep(sensor.id, sweep.start, sweep.stop, sweep.points, sweep.log_scale)
+    low, high = names.explore.control_range()
+    step = (high - low) / max(sweep.points - 1, 1)
+    source = names.stimulus_source[sensor.id]
+    unit = spec.unit
+
+    def planned(start: float, stop: float, index: int) -> PlannedAnalysis:
+        signed = step if stop >= start else -step
+        return PlannedAnalysis(
+            DcSweep(source=sensor.id, start=start, stop=stop, step=step),
+            f"dc {source} {_num(start)} {_num(stop)} {_num(signed)}",
+            f"analysis{index}.raw",
+            spec.quantity,
+            unit,
+            log_scale=sweep.log_scale,
+        )
+
+    return (
+        _plan(OperatingPoint(), 0, circuit, names),
+        planned(low, high, 1),
+        planned(high, low, 2),
+    )
+
+
+def to_spice(circuit: Circuit, explore: StimulusSweep | None = None) -> SpiceDeck:
+    """Translate a circuit into an ngspice deck. Raises :class:`SpiceEmissionError`.
+
+    With ``explore`` the circuit's own analyses are replaced by a sweep of one sensor's
+    stimulus, up and then down (see :class:`StimulusSweep`).
+    """
     _check_net_case(circuit)
     metered = _metered_components(circuit, _current_probe_targets(circuit))
     names = _assign_names(circuit, metered)
     traces = _traces(circuit, names)
-    analyses = _plan_all(circuit, names)
+    analyses = _plan_explore(circuit, names, explore) if explore else _plan_all(circuit, names)
     node_voltages, currents, node_names = _maps(circuit, names)
     text = "\n".join(
         [

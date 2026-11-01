@@ -321,3 +321,21 @@ def test_prompt_examples_meet_their_own_expectations(request_text: str) -> None:
     assert result.ok, result.error
     assert all(e.passed for e in result.expectations), [e.detail for e in result.expectations]
     assert not [c.message for c in result.checks if c.severity == "error"]
+
+
+@requires_ngspice
+def test_explore_sweeps_a_sensor_both_ways_and_shows_hysteresis() -> None:
+    assert NGSPICE is not None
+    simulator = NgspiceSimulator(NGSPICE)
+    result = asyncio.run(simulator.explore(Circuit.model_validate(LDR_STREET_LAMP), "LDR1"))
+    assert result.ok, result.error
+    assert result.up is not None and result.down is not None and result.log_scale
+
+    def switching_lux(sweep: SweepResult) -> float:
+        lamp = next(t.values for t in sweep.traces if t.component == "LA1")
+        on = [abs(i) > 2 for i in lamp]
+        index = next(i for i in range(1, len(on)) if on[i] != on[i - 1])
+        return sweep.x.values[index]
+
+    assert 5 < switching_lux(result.down) < 15  # dusk: on at ~10 lux
+    assert 20 < switching_lux(result.up) < 45  # dawn: off at ~30 lux (hysteresis)

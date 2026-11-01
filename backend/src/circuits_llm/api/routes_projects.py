@@ -30,7 +30,13 @@ from circuits_llm.llm.contracts import (
     DesignFailed,
     DesignRequest,
 )
-from circuits_llm.simulation import SimulationResult, Simulator, SpiceEmissionError, to_spice
+from circuits_llm.simulation import (
+    ExploreResult,
+    SimulationResult,
+    Simulator,
+    SpiceEmissionError,
+    to_spice,
+)
 from circuits_llm.storage import MessageMeta, MessageRecord, ProjectRecord, VersionRecord
 
 from .schemas import (
@@ -182,6 +188,16 @@ def with_transient(circuit: Circuit, options: SimulateOptions) -> Circuit:
     transient = Transient(stop_time=stop, step_time=step)
     others = [a for a in circuit.analyses if not isinstance(a, Transient)]
     return circuit.model_copy(update={"analyses": [*others, transient]})
+
+
+@router.post("/{project_id}/versions/{number}/explore/{sensor_id}")
+async def explore_sensor(
+    project_id: str, number: int, sensor_id: str, services: ServicesDep
+) -> ExploreResult:
+    """Sweep one sensor's stimulus across its range (up and down) for the live slider."""
+    simulator = _require_simulator(services)
+    record = await asyncio.to_thread(services.store.get_version, project_id, number)
+    return await simulator.explore(record.circuit, sensor_id)
 
 
 @router.get(

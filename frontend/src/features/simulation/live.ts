@@ -71,27 +71,42 @@ export type LiveVoltages =
       sweep: SweepResult;
     };
 
+/**
+ * Per-net/per-component arrays over a sweep's x axis. A descending axis (an
+ * explore "down" sweep) is reversed, since interpolation needs ascending x.
+ */
+export function liveFromSweep(sweep: SweepResult): LiveVoltages | null {
+  const n = sweep.x.values.length;
+  const descending = n > 1 && sweep.x.values[0]! > sweep.x.values[n - 1]!;
+  const arr = (values: number[]) => {
+    const a = Float64Array.from(values);
+    return descending ? a.reverse() : a;
+  };
+  const values = new Map<string, Float64Array>();
+  const currents = new Map<string, Float64Array>();
+  const stimuli = new Map<string, Float64Array>();
+  let maxAbs = 0;
+  for (const trace of sweep.traces) {
+    if (trace.stimulus_of) {
+      stimuli.set(netKey(trace.stimulus_of), arr(trace.values));
+      continue;
+    }
+    if (trace.component && trace.unit === "A") currents.set(netKey(trace.component), arr(trace.values));
+    if (!trace.net || trace.unit !== "V") continue;
+    const a = arr(trace.values);
+    for (const v of a) maxAbs = Math.max(maxAbs, Math.abs(v));
+    values.set(netKey(trace.net), a);
+  }
+  return values.size > 0 ? { kind: "sweep", x: arr(sweep.x.values), values, currents, stimuli, maxAbs, sweep } : null;
+}
+
 export function buildLiveVoltages(result: SimulationResult | null | undefined, driver: number | null): LiveVoltages | null {
   if (!result?.ok) return null;
   const analyses = result.analyses ?? [];
   const sweep = driver !== null ? analyses[driver] : undefined;
   if (sweep && isDrivable(sweep)) {
-    const values = new Map<string, Float64Array>();
-    const currents = new Map<string, Float64Array>();
-    const stimuli = new Map<string, Float64Array>();
-    let maxAbs = 0;
-    for (const trace of sweep.traces) {
-      if (trace.stimulus_of) {
-        stimuli.set(netKey(trace.stimulus_of), Float64Array.from(trace.values));
-        continue;
-      }
-      if (trace.component && trace.unit === "A") currents.set(netKey(trace.component), Float64Array.from(trace.values));
-      if (!trace.net || trace.unit !== "V") continue;
-      const arr = Float64Array.from(trace.values);
-      for (const v of arr) maxAbs = Math.max(maxAbs, Math.abs(v));
-      values.set(netKey(trace.net), arr);
-    }
-    if (values.size > 0) return { kind: "sweep", x: Float64Array.from(sweep.x.values), values, currents, stimuli, maxAbs, sweep };
+    const live = liveFromSweep(sweep);
+    if (live) return live;
   }
   const op = analyses.find((a) => a.type === "op");
   if (op && op.type === "op") {

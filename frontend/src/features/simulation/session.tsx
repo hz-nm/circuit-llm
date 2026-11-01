@@ -2,8 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorMessage, unwrap } from "../../api/client";
 import { keys, useSimulation } from "../../api/queries";
-import type { Issue, SimulationResult, VersionOut } from "../../api/types";
-import { buildLiveVoltages, CursorStore, defaultDriver, isDrivable, type LiveVoltages } from "./live";
+import type { ExploreResult, Issue, SimulationResult, VersionOut } from "../../api/types";
+import { buildLiveVoltages, CursorStore, defaultDriver, isDrivable, liveFromSweep, netKey, sampleAt, type LiveVoltages } from "./live";
 import { useProbes, type Probes } from "./probes";
 
 export type RunStatus =
@@ -45,9 +45,31 @@ export interface SimulationSession {
   /** Latest request to show something elsewhere in the workspace (seq makes repeats distinct). */
   nav: NavRequest | null;
   navigate: (tab: NavRequest["tab"], focus?: NavRequest["focus"]) => void;
+  /**
+   * Sensor slider ("explore"): while set, the schematic shows the steady state at
+   * `value` from the up or down stimulus sweep (the last drag direction).
+   */
+  explore: ExploreState | null;
+  exploreStatus: { sensorId: string; kind: "sweeping" | "error"; message?: string } | null;
+  startExplore: (sensorId: string) => void;
+  setExploreValue: (value: number) => void;
+  exitExplore: () => void;
   /** Multimeter cards pinned on the schematic (component ids); kept across tab switches. */
   pinned: string[];
   setPinned: (update: (list: string[]) => string[]) => void;
+}
+
+export interface ExploreState {
+  sensorId: string;
+  data: ExploreResult;
+  direction: "up" | "down";
+  value: number;
+}
+
+/** Stimulus range covered by an explore result. */
+export function exploreRange(data: ExploreResult): { min: number; max: number } {
+  const xs = (data.up ?? data.down)?.x.values ?? [0, 1];
+  return { min: Math.min(...xs), max: Math.max(...xs) };
 }
 
 export interface NavRequest {
@@ -189,6 +211,75 @@ export function SimulationSessionProvider({ projectId, version, available, child
     cursor.set(current !== null && current >= first && current <= last ? current : first, "scrubber");
   }, [live, cursor]);
 
+  // ---- sensor sliders: an explore sweep temporarily becomes the live driver
+  const [explore, setExplore] = useState<ExploreState | null>(null);
+  const [exploreStatus, setExploreStatus] = useState<SimulationSession["exploreStatus"]>(null);
+  const baseLive = live;
+  const exploreSweep = explore ? (explore.direction === "up" ? (explore.data.up ?? explore.data.down) : (explore.data.down ?? explore.data.up)) : null;
+  const exploreLive = useMemo(() => (exploreSweep ? liveFromSweep(exploreSweep) : null), [exploreSweep]);
+
+  const startExplore = useCallback(
+    (sensorId: string) => {
+      if (explore?.sensorId === sensorId) return;
+      setExploreStatus({ sensorId, kind: "sweeping" });
+      qc.fetchQuery({
+        queryKey: ["explore", projectId, version.number, sensorId],
+        queryFn: () =>
+          unwrap(
+            api.POST("/api/projects/{project_id}/versions/{number}/explore/{sensor_id}", {
+              params: { path: { project_id: projectId, number: version.number, sensor_id: sensorId } },
+            }),
+          ),
+        staleTime: Infinity,
+      })
+        .then((data) => {
+          if (!data.ok || !(data.up ?? data.down)) {
+            setExploreStatus({ sensorId, kind: "error", message: data.error ?? "the sweep failed" });
+            return;
+          }
+          // Start where the sensor is now: its value at the timeline cursor, or its constant stimulus.
+          const { min, max } = exploreRange(data);
+          const component = version.circuit.components.find((c) => c.id === sensorId);
+          const recorded = baseLive?.kind === "sweep" ? baseLive.stimuli.get(netKey(sensorId)) : undefined;
+          const now =
+            recorded && baseLive?.kind === "sweep"
+              ? sampleAt(baseLive.x, recorded, cursor.get() ?? baseLive.x[0] ?? 0)
+              : typeof component?.stimulus === "number"
+                ? component.stimulus
+                : data.log_scale
+                  ? Math.sqrt(min * max)
+                  : (min + max) / 2;
+          setExplore({ sensorId, data, direction: "up", value: Math.min(max, Math.max(min, now)) });
+          setExploreStatus(null);
+        })
+        .catch((error: unknown) => setExploreStatus({ sensorId, kind: "error", message: errorMessage(error) }));
+    },
+    [explore?.sensorId, qc, projectId, version, baseLive, cursor],
+  );
+
+  const setExploreValue = useCallback((value: number) => {
+    setExplore((s) => s && { ...s, value, direction: value < s.value ? "down" : value > s.value ? "up" : s.direction });
+  }, []);
+  // Leaving explore mode returns the cursor to the start of the normal timeline.
+  const exitExplore = useCallback(() => {
+    setExplore(null);
+    setExploreStatus(null);
+    cursor.set(baseLive?.kind === "sweep" ? (baseLive.x[0] ?? null) : null, "scrubber");
+  }, [cursor, baseLive]);
+  const runAndExit = useCallback(
+    (options?: RunOptions, manual?: boolean) => {
+      if (explore) exitExplore();
+      run(options, manual);
+    },
+    [run, explore, exitExplore],
+  );
+
+  // While exploring, the shared cursor is the stimulus value (set after the live effect above).
+  const exploreValue = explore?.value;
+  useEffect(() => {
+    if (exploreValue !== undefined && exploreLive) cursor.set(exploreValue, "scrubber");
+  }, [exploreValue, exploreLive, cursor]);
+
   const probes = useProbes(projectId, version.number, version.circuit, result);
   const [pinned, setPinnedState] = useState<string[]>([]);
   const checks = useMemo(() => {
@@ -219,24 +310,29 @@ export function SimulationSessionProvider({ projectId, version, available, child
       result,
       status: shownStatus,
       running,
-      run,
+      run: runAndExit,
       stop,
       autoRun,
       setAutoRun,
       lastRun,
       driver,
       setDriver,
-      live,
+      live: exploreLive ?? live,
       cursor,
       probes,
       checks,
       ratingIssues,
       nav,
       navigate,
+      explore,
+      exploreStatus,
+      startExplore,
+      setExploreValue,
+      exitExplore,
       pinned,
       setPinned,
     }),
-    [projectId, version, result, shownStatus, running, run, stop, autoRun, setAutoRun, lastRun, driver, live, cursor, probes, checks, ratingIssues, nav, navigate, pinned, setPinned],
+    [projectId, version, result, shownStatus, running, runAndExit, stop, autoRun, setAutoRun, lastRun, driver, live, exploreLive, cursor, probes, checks, ratingIssues, nav, navigate, explore, exploreStatus, startExplore, setExploreValue, exitExplore, pinned, setPinned],
   );
 
   return <Context.Provider value={session}>{children}</Context.Provider>;

@@ -751,6 +751,67 @@
         }
       }
     },
+    "/api/projects/{project_id}/versions/{number}/explore/{sensor_id}": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Explore Sensor",
+        "description": "Sweep one sensor's stimulus across its range (up and down) for the live slider.",
+        "operationId": "explore_sensor_api_projects__project_id__versions__number__explore__sensor_id__post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          },
+          {
+            "name": "sensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sensor Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExploreResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/versions/{number}/spice": {
       "get": {
         "tags": [
@@ -1609,6 +1670,72 @@
         ],
         "title": "ExpectationResult",
         "description": "Whether one of the circuit's expectations held in the simulation."
+      },
+      "ExploreResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "sensor": {
+            "type": "string",
+            "title": "Sensor"
+          },
+          "quantity": {
+            "type": "string",
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "log_scale": {
+            "type": "boolean",
+            "title": "Log Scale"
+          },
+          "up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SweepResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "down": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SweepResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "sensor",
+          "quantity",
+          "unit",
+          "log_scale"
+        ],
+        "title": "ExploreResult",
+        "description": "One sensor's stimulus swept across its range (DC steady states), up and then down.\n\nThe x axis of ``up``/``down`` is the stimulus itself (e.g. lux). Running both\ndirections captures hysteresis: a Schmitt trigger switches at different levels."
       },
       "HTTPValidationError": {
         "properties": {

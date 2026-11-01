@@ -19,12 +19,20 @@ from .results import (
     AnalysisResult,
     Axis,
     ExpectationResult,
+    ExploreResult,
     OperatingPointResult,
     SimulationResult,
     SweepResult,
     Trace,
 )
-from .spice import PlannedAnalysis, SpiceDeck, SpiceEmissionError, TraceSpec, to_spice
+from .spice import (
+    PlannedAnalysis,
+    SpiceDeck,
+    SpiceEmissionError,
+    StimulusSweep,
+    TraceSpec,
+    to_spice,
+)
 
 __all__ = [
     "DEFAULT_TIMEOUT_S",
@@ -36,6 +44,7 @@ __all__ = [
     "Axis",
     "DeviceModel",
     "ExpectationResult",
+    "ExploreResult",
     "NgspiceSimulator",
     "OpAmpSpec",
     "OperatingPointResult",
@@ -46,6 +55,7 @@ __all__ = [
     "Simulator",
     "SpiceDeck",
     "SpiceEmissionError",
+    "StimulusSweep",
     "SweepResult",
     "Trace",
     "TraceSpec",

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Circuit } from "../../api/types";
 import { formatReadout } from "../../lib/si";
 import { cursorLabel, isDrivable, netKey, sampleAt, type LiveVoltages } from "../simulation/live";
+import { SensorSlider } from "./SensorSlider";
 import { formatStimulus, STIMULUS } from "./stimulus";
 import type { SimulationSession } from "../simulation/session";
 
@@ -132,17 +133,34 @@ export function LiveDock({
   session: SimulationSession;
   voltages: ReadonlyMap<string, number> | null;
 }) {
-  const { live, result, driver, setDriver } = session;
+  const { live, result, driver, setDriver, explore, exitExplore } = session;
+  const sensors = circuit.components.filter((c) => STIMULUS[c.kind]);
   const sweeps = (result?.ok ? (result.analyses ?? []) : []).flatMap((a, i) => (isDrivable(a) ? [{ a, i }] : []));
   const [showNets, setShowNets] = useState(false);
 
   return (
     <div className="border-t border-line bg-panel px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {live?.kind === "sweep" && <Scrubber live={live} session={session} />}
-        {live?.kind === "static" && <span className="text-xs text-muted">Operating point</span>}
+        {explore ? (
+          <span className="flex items-center gap-2 text-xs">
+            <span className="font-medium">Steady state of {explore.sensorId}</span>
+            <span className="text-muted">({explore.direction === "up" ? "rising ↑" : "falling ↓"} sweep)</span>
+            <button
+              type="button"
+              onClick={exitExplore}
+              className="rounded-md border border-line px-2 py-0.5 hover:bg-sunken focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              × Exit slider
+            </button>
+          </span>
+        ) : (
+          <>
+            {live?.kind === "sweep" && <Scrubber live={live} session={session} />}
+            {live?.kind === "static" && <span className="text-xs text-muted">Operating point</span>}
+          </>
+        )}
         {!live && <span className="text-xs text-muted">{result === null ? "Not simulated yet: press ▶ Run" : "No node voltages in this result"}</span>}
-        {sweeps.length > 1 && (
+        {sweeps.length > 1 && !explore && (
           <label className="flex items-center gap-1.5 text-xs text-muted">
             Drive with
             <select
@@ -167,6 +185,13 @@ export function LiveDock({
           Probes ({session.probes.nets.size}) {showNets ? "▴" : "▾"}
         </button>
       </div>
+      {sensors.length > 0 && result?.ok && (
+        <div role="group" aria-label="Sensor sliders" className="mt-2 flex flex-col gap-1">
+          {sensors.map((c) => (
+            <SensorSlider key={c.id} session={session} component={c} />
+          ))}
+        </div>
+      )}
       {showNets && (
         <div className="mt-2">
           <NetList circuit={circuit} session={session} voltages={voltages} />

@@ -92,6 +92,9 @@ class StimulusSpec:
     minimum: float
     maximum: float
     hint: str  # e.g. "about 10000 lux in daylight, 1 lux at night"
+    # Range of the interactive slider; a log scale for quantities spanning decades.
+    explore: tuple[float, float] = (0.0, 1.0)
+    log_scale: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,6 +471,8 @@ _LIGHT = StimulusSpec(
     minimum=0,
     maximum=200_000,
     hint="about 50000 in sunlight, 500 indoors, 10 at dusk, 0.1 at night",
+    explore=(0.1, 100_000),
+    log_scale=True,
 )
 _SENSORS_NOTE = (
     "Give 'stimulus' as a constant or as a waveform over time (e.g. pwl from day to night)."
@@ -514,6 +519,7 @@ _SENSOR_SPECS: Final[tuple[ComponentSpec, ...]] = (
             minimum=-55,
             maximum=150,
             hint="e.g. 25 room, 0 freezing, 100 boiling",
+            explore=(-20, 100),
         ),
     ),
     ComponentSpec(
@@ -583,6 +589,8 @@ _SENSOR_SPECS: Final[tuple[ComponentSpec, ...]] = (
             minimum=0,
             maximum=10_000,
             hint="0 for clean air; e.g. 1000 ppm smoke/LPG (MQ-2), 400-2000 ppm CO2 (MQ-135)",
+            explore=(1, 10_000),
+            log_scale=True,
         ),
     ),
     ComponentSpec(

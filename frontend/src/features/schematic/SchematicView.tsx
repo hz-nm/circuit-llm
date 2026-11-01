@@ -12,6 +12,8 @@ import { pinCurrents, type FlowMode } from "./currentFlow";
 import { FlowLayer } from "./FlowLayer";
 import { layoutCircuit, type ElkLike } from "./layout";
 import { LiveDock } from "./LiveDock";
+import { SensorSlider } from "./SensorSlider";
+import { STIMULUS } from "./stimulus";
 import { SCHEMATIC_CSS, SchematicContent, type LiveOverlay, type ProbeHandlers, type RatingMark } from "./SchematicSvg";
 import { usePanZoom } from "./usePanZoom";
 
@@ -242,6 +244,15 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
             <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
               <SchematicContent schematic={schematic} highlight={highlight} ratings={ratings} live={overlay} probe={probeHandlers} />
               {flowPins && <FlowLayer schematic={schematic} pins={flowPins} mode={flowMode} />}
+              {/* Inline stimulus slider under each sensor (the dock has the same control for keyboard users). */}
+              {session?.result?.ok &&
+                schematic.components
+                  .filter((item) => STIMULUS[item.placed.component.kind])
+                  .map((item) => (
+                    <foreignObject key={`slider:${item.placed.component.id}`} x={item.x - 10} y={item.y + item.placed.height + 2} width={170} height={22}>
+                      <SensorSlider session={session} component={item.placed.component} compact />
+                    </foreignObject>
+                  ))}
             </g>
           </svg>
         )}

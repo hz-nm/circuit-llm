@@ -8,7 +8,9 @@ import { SimulationResults, type PlotLinks } from "./SimulationResults";
 
 /** Simulation tab: results of the selected version (runs are started from the run bar). */
 export function SimulationView() {
-  const { result, version, running, probes, cursor, driver, checks, nav, navigate, setPinned } = useSimulationSession();
+  const { result, version, running, probes, cursor, driver: timelineDriver, explore, checks, nav, navigate, setPinned } = useSimulationSession();
+  // While a sensor slider is active the shared cursor holds a stimulus value, not a time.
+  const driver = explore ? null : timelineDriver;
   const checksRef = useRef<HTMLElement>(null);
   // Failed expectations have their own panel; Bench checks lists only rating problems.
   const ratingChecks = checks.filter((c) => !c.code.startsWith("expectation_"));

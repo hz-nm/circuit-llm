@@ -9,6 +9,7 @@ timeout, a cap on how much output is read back, and a fresh temporary directory.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import shutil
 import subprocess
@@ -20,15 +21,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, Protocol
 
-from circuits_llm.domain import Circuit, Issue, Severity
+from circuits_llm.domain import CATALOG, Circuit, Issue, Severity
 
 from .diagnostics import diagnose, timeout_reason
 from .expectations import check_expectations
 from .extract import ExtractionError, operating_point, sweep
 from .ratings import check_ratings
 from .raw import RawParseError, RawPlot, parse_raw
-from .results import AnalysisResult, SimulationResult
-from .spice import SpiceDeck, SpiceEmissionError, to_spice
+from .results import AnalysisResult, ExploreResult, SimulationResult, SweepResult
+from .spice import SpiceDeck, SpiceEmissionError, StimulusSweep, to_spice
 
 ENV_VAR: Final = "CIRCUITS_LLM_NGSPICE"
 DEFAULT_TIMEOUT_S: Final = 30.0
@@ -158,6 +159,39 @@ class NgspiceSimulator:
             result = result.model_copy(update={"checks": checks, "expectations": outcomes})
         return result
 
+    async def explore(self, circuit: Circuit, sensor_id: str) -> ExploreResult:
+        """Sweep one sensor's stimulus across its range, up then down (for a live slider)."""
+        component = circuit.component(sensor_id)
+        spec = CATALOG[component.kind].stimulus if component is not None else None
+        if component is None or spec is None:
+            return ExploreResult(
+                ok=False, sensor=sensor_id, quantity="", unit="", log_scale=False,
+                error=f"'{sensor_id}' is not a sensor in this circuit",
+            )  # fmt: skip
+        low, high = spec.explore
+        points = (
+            round(EXPLORE_POINTS_PER_DECADE * math.log10(high / low)) + 1
+            if spec.log_scale
+            else EXPLORE_LINEAR_POINTS
+        )
+        sweep = StimulusSweep(component.id, low, high, points, spec.log_scale)
+        empty = ExploreResult(
+            ok=False, sensor=component.id, quantity=spec.quantity, unit=spec.unit,
+            log_scale=spec.log_scale,
+        )  # fmt: skip
+        try:
+            deck = to_spice(circuit, explore=sweep)
+        except SpiceEmissionError as exc:
+            return empty.model_copy(update={"error": f"Cannot simulate: {exc}"})
+        started = time.monotonic()
+        output = await asyncio.to_thread(self._run, deck)
+        result = _assemble(deck, output, int((time.monotonic() - started) * 1000))
+        sweeps = [a for a in result.analyses if isinstance(a, SweepResult)]
+        if not result.ok or len(sweeps) != 2:
+            return empty.model_copy(update={"error": result.error or "the sweep failed"})
+        up, down = (_in_stimulus_units(s, spec.log_scale) for s in sweeps)
+        return empty.model_copy(update={"ok": True, "up": up, "down": down})
+
     def _run(self, deck: SpiceDeck) -> _RunOutput:
         out = _RunOutput()
         with tempfile.TemporaryDirectory(prefix="circuits-llm-", ignore_cleanup_errors=True) as tmp:
@@ -245,6 +279,8 @@ def _assemble(deck: SpiceDeck, output: _RunOutput, elapsed_ms: int) -> Simulatio
 class Simulator(Protocol):
     async def simulate(self, circuit: Circuit) -> SimulationResult: ...
 
+    async def explore(self, circuit: Circuit, sensor_id: str) -> ExploreResult: ...
+
 
 async def simulation_issues(simulator: Simulator, circuit: Circuit) -> list[Issue]:
     """Simulate; report a failure, and any rating problems, as issues for the repair loop."""
@@ -258,3 +294,15 @@ async def simulation_issues(simulator: Simulator, circuit: Circuit) -> list[Issu
             message=result.error or "Simulation failed for an unknown reason.",
         )
     ]
+
+
+EXPLORE_POINTS_PER_DECADE: Final = 40
+EXPLORE_LINEAR_POINTS: Final = 201
+
+
+def _in_stimulus_units(sweep: SweepResult, log_scale: bool) -> SweepResult:
+    """The swept control value is log10(stimulus) on a log scale; convert the x axis back."""
+    if not log_scale:
+        return sweep
+    values = [10**x for x in sweep.x.values]
+    return sweep.model_copy(update={"x": sweep.x.model_copy(update={"values": values})})
