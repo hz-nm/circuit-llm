@@ -402,6 +402,8 @@ SENSOR_KINDS: Final = frozenset(
         ComponentKind.GAS_SENSOR,
         ComponentKind.PIR,
         ComponentKind.POTENTIOMETER,
+        ComponentKind.SWITCH,
+        ComponentKind.DC_MOTOR,
     }
 )
 
@@ -474,6 +476,10 @@ def sensor_subckt(kind: ComponentKind, model: str | None) -> str:
                     ".ends",
                 ]
             )
+        case ComponentKind.SWITCH:
+            return switch_subckt(name, model or "push_button")
+        case ComponentKind.DC_MOTOR:
+            return motor_subckt(name, model or "130")
         case ComponentKind.POTENTIOMETER:
             position = _clamped("V(stim)", 0, 1)
             return "\n".join(
@@ -486,6 +492,96 @@ def sensor_subckt(kind: ComponentKind, model: str | None) -> str:
             )
         case _:
             raise ValueError(f"{kind} is not a sensor")
+
+
+# --------------------------------------------------------------------------- actuators
+#
+# Switches are ngspice voltage-controlled switches driven by the 'pressed' stimulus. A
+# buzzer is a polarised resistive load. A DC motor is an electromechanical model: coil
+# resistance and inductance plus back-EMF Ke*w on the electrical side; on the mechanical
+# side node w carries the speed in rad/s, with inertia J as a capacitor, friction b as a
+# conductance and the electromagnetic torque Kt*i (minus the load torque) as a current.
+
+NORMALLY_CLOSED_SWITCHES: Final = frozenset({"push_button_nc"})
+SWITCH_ON_OHMS: Final = 0.05
+SWITCH_OFF_OHMS: Final = 100e6
+BUZZER_AMPS: Final = 0.030
+BUZZER_VOLTS: Final[dict[str, float]] = {"5V": 5.0, "12V": 12.0}
+RAD_PER_S_TO_RPM: Final = 60 / (2 * math.pi)
+
+
+@dataclass(frozen=True, slots=True)
+class MotorSpec:
+    """Brushed DC motor parameters (SI units), fitted to typical datasheet figures."""
+
+    rated_v: float
+    max_v: float
+    ohms: float  # winding resistance
+    henries: float
+    ke: float  # back-EMF constant V/(rad/s) == torque constant N*m/A
+    friction: float  # viscous friction N*m/(rad/s)
+    inertia: float  # kg*m^2
+
+    @property
+    def stall_torque(self) -> float:
+        return self.ke * self.rated_v / self.ohms
+
+
+MOTOR_MODELS: Final[dict[str, MotorSpec]] = {
+    # ~9000 rpm and 0.15 A unloaded at 3 V, 2.2 A stalled
+    "130": MotorSpec(3.0, 6.0, 1.36, 0.15e-3, 0.00297, 4.7e-7, 1.0e-6),
+    # ~7000 rpm and 0.2 A unloaded at 12 V, 3.5 A stalled
+    "RS-385": MotorSpec(12.0, 18.0, 3.4, 1.0e-3, 0.01544, 4.2e-6, 8.0e-6),
+}
+
+
+def switch_subckt(name: str, model: str) -> str:
+    closed_at_rest = model in NORMALLY_CLOSED_SWITCHES
+    control = "1-V(stim)" if closed_at_rest else "V(stim)"
+    return "\n".join(
+        [
+            f".subckt {name} 1 2 stim",
+            f"Bctl ctl 0 V={control}",
+            "S1 1 2 ctl 0 SWPRESS",
+            f".model SWPRESS SW(VT=0.5 VH=0.1 RON={SWITCH_ON_OHMS:g} ROFF={SWITCH_OFF_OHMS:g})",
+            ".ends",
+        ]
+    )
+
+
+def motor_subckt(name: str, model: str) -> str:
+    """Ports: + - stim(load fraction) rpm(output)."""
+    m = MOTOR_MODELS[model]
+    load = f"{m.stall_torque:g}*min(max(V(stim),0),1)*tanh(V(w))"  # opposes motion
+    return "\n".join(
+        [
+            f".subckt {name} p n stim rpm",
+            f"Rw p a {m.ohms:g}",
+            f"Lw a b {m.henries:g}",
+            "Vi b c DC 0",
+            f"Bemf c n V={m.ke:g}*V(w)",
+            f"Btq 0 w I={m.ke:g}*I(Vi)-{load}",
+            f"Cj w 0 {m.inertia:g}",
+            f"Rf w 0 {1 / m.friction:g}",
+            f"Brpm rpm 0 V={RAD_PER_S_TO_RPM:g}*V(w)",
+            ".ends",
+        ]
+    )
+
+
+def buzzer_subckt(model: str) -> tuple[str, str]:
+    volts = BUZZER_VOLTS[model]
+    name = f"BUZ_{model.upper()}"
+    ohms = (volts - 0.7) / BUZZER_AMPS  # draws ~30 mA at its rated voltage
+    return name, "\n".join(
+        [
+            f".subckt {name} p n",
+            "D1 p a DBUZ",
+            f"R1 a n {ohms:g}",
+            ".model DBUZ D(IS=1e-12 N=1.5)",
+            ".ends",
+        ]
+    )
 
 
 # --------------------------------------------------------------------------- arduino

@@ -54,6 +54,16 @@ _FAMILY_ALIASES: Final[dict[str, Family]] = {
     "arduino_uno": Family.MICROCONTROLLERS,
     "microcontroller": Family.MICROCONTROLLERS,
     "mcu": Family.MICROCONTROLLERS,
+    "motor": Family.ACTUATORS,
+    "motors": Family.ACTUATORS,
+    "dc_motor": Family.ACTUATORS,
+    "fan": Family.ACTUATORS,
+    "buzzer": Family.ACTUATORS,
+    "actuator": Family.ACTUATORS,
+    "button": Family.SENSORS,
+    "buttons": Family.SENSORS,
+    "switch": Family.SENSORS,
+    "switches": Family.SENSORS,
 }
 
 

@@ -94,6 +94,7 @@ def sweep(plot: RawPlot, planned: PlannedAnalysis, deck: SpiceDeck) -> SweepResu
             component=spec.component,
             pin=spec.pin,
             stimulus_of=spec.stimulus_of,
+            output_of=spec.output_of,
             probed=spec.probed,
         )
         for spec, values, phase in found

@@ -28,6 +28,7 @@ from circuits_llm.domain import (
     format_si,
 )
 
+from .library import BUZZER_VOLTS, MOTOR_MODELS
 from .results import OperatingPointResult, SimulationResult
 
 RESISTOR_DEFAULT_WATTS: Final = 0.25
@@ -96,6 +97,14 @@ RATINGS: Final[dict[ComponentKind, dict[str, Rating]]] = {
 }
 _LOGIC_SUPPLY: Final = {"74HC": (2.0, 6.0), "CD4000": (3.0, 18.0)}
 ZENER_WATTS: Final = 0.5
+SWITCH_AMPS: Final[dict[str, float]] = {
+    "push_button": 0.05,
+    "push_button_nc": 0.05,
+    "reed": 0.5,
+    "toggle": 3.0,
+    "limit": 5.0,
+}
+OVERVOLTAGE_FACTOR: Final = 1.25  # buzzer: tolerated above its rated voltage
 PIR_SUPPLY: Final = (4.5, 20.0)  # HC-SR501
 
 _TRANSISTORS: Final = frozenset(
@@ -231,6 +240,10 @@ def _check_component(component: Component, s: _Signals) -> Iterator[tuple[float,
         yield from _resistor_checks(component, name, s)
     elif kind is ComponentKind.LAMP:
         yield from _lamp_checks(component, name, s)
+    elif kind is ComponentKind.SWITCH:
+        yield from _switch_checks(component, name, model, s)
+    elif kind in (ComponentKind.BUZZER, ComponentKind.DC_MOTOR):
+        yield from _actuator_voltage_checks(component, name, model, s)
     elif kind in _TRANSISTORS and rating is not None:
         yield from _transistor_checks(component, name, rating, s)
     elif kind is ComponentKind.OPAMP and rating is not None and rating.supply and "v+" in pins:
@@ -377,7 +390,9 @@ def _transistor_checks(
                 Severity.ERROR,
                 "overvoltage",
                 f"{name} sees {label_v} = {format_si(peak_v, 'V')} {s.where(v_main)}, above its "
-                f"{format_si(rating.voltage, 'V')} rating. Choose a higher-voltage part.",
+                f"{format_si(rating.voltage, 'V')} rating. If it switches a motor, relay "
+                "or inductor, add a flyback diode across that load (cathode to the "
+                "positive side); otherwise choose a higher-voltage part.",
             ),
         )
     if mos and rating.gate_voltage is not None:
@@ -572,3 +587,53 @@ def _arduino_pin_checks(
                         f"{format_si(ARDUINO_PIN_RECOMMENDED_A, 'A')}: {fix}.",
                     ),
                 )
+
+
+# --------------------------------------------------------------------------- actuators
+
+
+def _switch_checks(
+    component: Component, name: str, model: str | None, s: _Signals
+) -> Iterator[tuple[float, _Finding]]:
+    limit = SWITCH_AMPS.get(model or "push_button")
+    current = s.current(component.id)
+    if limit is None or not current:
+        return
+    amps = _sustained(s, current)  # thermal limit; a gate-charging spike is harmless
+    if amps > limit:
+        yield (
+            amps / limit,
+            _Finding(
+                Severity.ERROR,
+                "switch_overcurrent",
+                f"{name} carries {format_si(amps, 'A')} {s.where(current)}, above its "
+                f"{format_si(limit, 'A')} rating. Let the switch drive a MOSFET gate (with a "
+                "pull-down resistor) and switch the load with the MOSFET.",
+            ),
+        )
+
+
+def _actuator_voltage_checks(
+    component: Component, name: str, model: str | None, s: _Signals
+) -> Iterator[tuple[float, _Finding]]:
+    if component.kind is ComponentKind.BUZZER:
+        rated = BUZZER_VOLTS.get(model or "5V", 5.0)
+        limit = rated * OVERVOLTAGE_FACTOR
+    else:
+        motor = MOTOR_MODELS.get(model or "130")
+        if motor is None:
+            return
+        rated, limit = motor.rated_v, motor.max_v
+    across = _difference(s.v(component.pins["+"]), s.v(component.pins["-"]))
+    volts = _sustained(s, across)
+    if volts > limit:
+        yield (
+            volts / limit,
+            _Finding(
+                Severity.ERROR,
+                "actuator_overvoltage",
+                f"{name} sees {format_si(volts, 'V')} {s.where(across)}, but it is rated "
+                f"{format_si(rated, 'V')} (at most {format_si(limit, 'V')}). Power it from its "
+                "rated voltage or choose the model for this supply.",
+            ),
+        )

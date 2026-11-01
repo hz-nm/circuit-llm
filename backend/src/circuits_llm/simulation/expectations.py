@@ -41,6 +41,7 @@ from .results import (
 )
 
 PASS_FRACTION: Final = 0.9
+SETTLE_FRACTION: Final = 0.3  # of each stretch where `when` holds, ignored as settling
 _NEVER_HAPPENS: Final = "never happens"
 _ANALYSIS_ORDER: Final = ("tran", "dc", "op")
 _ANALYSIS_NAMES: Final = {"tran": "transient", "dc": "DC sweep", "op": "operating point"}
@@ -77,6 +78,8 @@ def _samples(analysis: AnalysisResult) -> _Samples | None:
             series[("current", trace.component.lower())] = trace.values
         elif trace.stimulus_of:
             series[("stimulus", trace.stimulus_of.lower())] = trace.values
+        elif trace.output_of:
+            series[("output", trace.output_of.lower())] = trace.values
     return _Samples(analysis.type, analysis.x.name, analysis.x.unit, analysis.x.values, series)
 
 
@@ -86,7 +89,13 @@ def _unit(circuit: Circuit, signal: Signal) -> str:
     if signal.kind == "current":
         return "A"
     component = circuit.component(signal.target)
-    spec = CATALOG[component.kind].stimulus if component is not None else None
+    if component is None:
+        return ""
+    if signal.kind == "output":
+        return next(
+            (u for name, u in CATALOG[component.kind].outputs if name == signal.quantity), ""
+        )
+    spec = CATALOG[component.kind].stimulus
     return spec.unit if spec is not None else ""
 
 
@@ -210,11 +219,28 @@ def _select(
     if when is None:
         return list(enumerate(values))
     condition_values = samples.get(when[0]) or []
-    return [
-        (i, v)
-        for i, (v, c) in enumerate(zip(values, condition_values, strict=False))
-        if when[1].holds(c)
-    ]
+    holding = [i for i, c in enumerate(condition_values[: len(values)]) if when[1].holds(c)]
+    return [(i, values[i]) for i in _settled(holding, samples)]
+
+
+def _settled(indices: Sequence[int], samples: _Samples) -> list[int]:
+    """Drop the first SETTLE_FRACTION of every stretch where the condition holds.
+
+    "When X, then Y" means once things settle: a motor needs time to spin up and a
+    capacitor to charge after X becomes true.
+    """
+    kept: list[int] = []
+    run: list[int] = []
+    for index in [*indices, -1]:  # -1 flushes the last stretch
+        if run and index == run[-1] + 1:
+            run.append(index)
+            continue
+        if run:
+            start, end = samples.x[run[0]], samples.x[run[-1]]
+            cutoff = start + SETTLE_FRACTION * (end - start)
+            kept += [i for i in run if samples.x[i] >= cutoff]
+        run = [index] if index >= 0 else []
+    return kept
 
 
 def _worst(selected: Sequence[tuple[int, float]], check: Comparison) -> tuple[int, float]:

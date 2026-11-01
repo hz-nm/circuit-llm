@@ -42,6 +42,7 @@ from .library import (
     SENSOR_KINDS,
     DeviceModel,
     arduino_subckt,
+    buzzer_subckt,
     discrete_model,
     library_text,
     logic_subckt_name,
@@ -54,8 +55,9 @@ SPICE_GROUND: Final = "0"
 MAX_DEFAULT_TRACES: Final = 8
 MAX_NODE_TRACES: Final = 64  # node voltages recorded for schematic animation
 MAX_METERED_COMPONENTS: Final = 64  # two-pin parts whose current is always recorded
-# Transient output is interpolated onto a grid of at most this many points (the
-# solver's maximum internal step is still the requested step_time).
+# Bounds the transient print step. Results are not interpolated onto that grid: ngspice
+# reports its own adaptive timepoints, so brief spikes (e.g. an inductive kick lasting
+# microseconds) are captured; extraction then decimates while keeping extremes.
 MAX_TRAN_OUTPUT_POINTS: Final = 100_000
 MAX_TITLE_LENGTH: Final = 120
 OP_RAW_FILE: Final = "op.raw"
@@ -93,6 +95,9 @@ _ELEMENT_LETTER: Final[dict[ComponentKind, str]] = {
     ComponentKind.PIR: "X",
     ComponentKind.POTENTIOMETER: "X",
     ComponentKind.ARDUINO_UNO: "X",
+    ComponentKind.SWITCH: "X",
+    ComponentKind.BUZZER: "X",
+    ComponentKind.DC_MOTOR: "X",
 }
 _PASSIVES: Final = frozenset(
     {ComponentKind.RESISTOR, ComponentKind.CAPACITOR, ComponentKind.INDUCTOR}
@@ -119,6 +124,7 @@ class TraceSpec:
     component: str | None = None  # set for component-current traces
     pin: str | None = None  # current flows into this pin of `component`
     stimulus_of: str | None = None  # set for a sensor's environment trace
+    output_of: str | None = None  # set for an output quantity such as motor speed
 
 
 def _voltage_trace(net: str, *, probed: bool) -> TraceSpec:
@@ -217,6 +223,7 @@ class _Names:
     stimulus_source: dict[str, str] = field(default_factory=dict[str, str])  # sensor id ->
     stimulus_node: dict[str, str] = field(default_factory=dict[str, str])  # sensor id -> node
     explore: StimulusSweep | None = None
+    output_node: dict[str, str] = field(default_factory=dict[str, str])  # motor id -> rpm node
 
 
 def _assign_names(circuit: Circuit, current_probes: list[Component]) -> _Names:
@@ -245,6 +252,9 @@ def _assign_names(circuit: Circuit, current_probes: list[Component]) -> _Names:
             name = element[component.id]
             names.stimulus_source[component.id] = _unique(f"VSTIM_{name}", used)
             names.stimulus_node[component.id] = _unique(f"stim_{name}", used_nodes)
+        if CATALOG[component.kind].outputs:
+            name = element[component.id]
+            names.output_node[component.id] = _unique(f"out_{name}", used_nodes)
     return names
 
 
@@ -329,6 +339,16 @@ def _traces(circuit: Circuit, names: _Names) -> tuple[TraceSpec, ...]:
             name = f"{stimulus.quantity}({component.id})"
             vector = f"v({node.lower()})"
             traces[vector] = TraceSpec(vector, name, stimulus.unit, stimulus_of=component.id)
+
+    for component in circuit.components:  # outputs such as motor speed (rpm)
+        node = names.output_node.get(component.id)
+        if node is None:
+            continue
+        for quantity, unit in CATALOG[component.kind].outputs:
+            vector = f"v({node.lower()})"
+            traces[vector] = TraceSpec(
+                vector, f"{quantity}({component.id})", unit, output_of=component.id
+            )
 
     for net in nets[:MAX_NODE_TRACES]:
         traces.setdefault(net, _voltage_trace(net, probed=False))
@@ -453,9 +473,9 @@ def _emit_sensor(
     elif component.kind is ComponentKind.POTENTIOMETER:
         params = f" params: r={_num(_positive_value(component))}"
     out.sensors.append((component.kind, model))
-    out.lines.append(
-        f"{element} {nodes} {stim_node} {sensor_subckt_name(component.kind, model)}{params}"
-    )
+    output = names.output_node.get(component.id)
+    ports = f"{nodes} {stim_node}" + (f" {output}" if output else "")
+    out.lines.append(f"{element} {ports} {sensor_subckt_name(component.kind, model)}{params}")
 
 
 def _positive_value(component: Component) -> float:
@@ -515,6 +535,10 @@ def _emit_component(component: Component, names: _Names, out: _Emitted) -> None:
         out.lines.append(f"{element} {nodes} {name}")
     elif component.kind in SENSOR_KINDS:
         _emit_sensor(component, spec, element, nodes, names, out)
+    elif component.kind is ComponentKind.BUZZER:
+        name, text = buzzer_subckt(component.model or spec.default_model or "5V")
+        out.custom.append((name, text))
+        out.lines.append(f"{element} {nodes} {name}")
     elif component.kind is ComponentKind.LAMP:
         out.lines.append(f"{element} {nodes} {_num(_lamp_resistance(component, spec))}")
     else:
@@ -665,7 +689,6 @@ def to_spice(circuit: Circuit, explore: StimulusSweep | None = None) -> SpiceDec
         [
             f"* {_sanitize_title(circuit.title)}",
             *_iter_lines(circuit, names),
-            ".options interp",
             _control_block(analyses, traces),
             ".end",
             "",

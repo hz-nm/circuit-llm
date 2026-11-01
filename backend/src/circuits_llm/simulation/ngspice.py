@@ -169,11 +169,10 @@ class NgspiceSimulator:
                 error=f"'{sensor_id}' is not a sensor in this circuit",
             )  # fmt: skip
         low, high = spec.explore
-        points = (
-            round(EXPLORE_POINTS_PER_DECADE * math.log10(high / low)) + 1
-            if spec.log_scale
-            else EXPLORE_LINEAR_POINTS
-        )
+        if spec.log_scale:
+            points = round(EXPLORE_POINTS_PER_DECADE * math.log10(high / low)) + 1
+        else:
+            points = EXPLORE_BINARY_POINTS if spec.binary else EXPLORE_LINEAR_POINTS
         sweep = StimulusSweep(component.id, low, high, points, spec.log_scale)
         empty = ExploreResult(
             ok=False, sensor=component.id, quantity=spec.quantity, unit=spec.unit,
@@ -298,6 +297,7 @@ async def simulation_issues(simulator: Simulator, circuit: Circuit) -> list[Issu
 
 EXPLORE_POINTS_PER_DECADE: Final = 40
 EXPLORE_LINEAR_POINTS: Final = 201
+EXPLORE_BINARY_POINTS: Final = 11  # buttons: 0 and 1 matter
 
 
 def _in_stimulus_units(sweep: SweepResult, log_scale: bool) -> SweepResult:

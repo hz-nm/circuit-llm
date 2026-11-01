@@ -33,6 +33,7 @@ class Trace(_Result):
     # 'collector' or 'drain'), so a positive value means conventional current entering it.
     pin: str | None = None
     stimulus_of: str | None = None  # a sensor's environment (light, temperature, ...)
+    output_of: str | None = None  # an output quantity of a part, e.g. motor speed (rpm)
     # True for signals chosen to be plotted (circuit probes, or defaults when there are
     # none); False for extra node voltages and component currents recorded for the
     # live schematic and multimeter.

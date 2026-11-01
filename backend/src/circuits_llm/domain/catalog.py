@@ -42,6 +42,9 @@ class ComponentKind(StrEnum):
     PIR = "pir"
     POTENTIOMETER = "potentiometer"
     ARDUINO_UNO = "arduino_uno"
+    SWITCH = "switch"
+    BUZZER = "buzzer"
+    DC_MOTOR = "dc_motor"
 
 
 class Category(StrEnum):
@@ -63,6 +66,7 @@ class Family(StrEnum):
     LOGIC = "logic"
     SENSORS = "sensors"
     MICROCONTROLLERS = "microcontrollers"
+    ACTUATORS = "actuators"
 
 
 FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
@@ -70,10 +74,11 @@ FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
     Family.TRANSISTORS: "BJTs and MOSFETs for switching loads or amplifying",
     Family.AMPLIFIERS: "op-amps for amplifiers, filters, comparators and references",
     Family.LOGIC: "logic gates (NOT/AND/OR/NAND/NOR/XOR) and Schmitt-trigger inverters",
+    Family.ACTUATORS: "DC motors (with speed in rpm) and buzzers",
     Family.SENSORS: (
-        "sensors driven by a simulated environment: light (LDR, photodiode, "
-        "phototransistor), temperature (NTC thermistor), gas (MQ-2/MQ-135), motion (PIR "
-        "module) and potentiometers (knob position)"
+        "switches and push buttons, and sensors driven by a simulated environment: light "
+        "(LDR, photodiode, phototransistor), temperature (NTC thermistor), gas (MQ-2/MQ-135), "
+        "motion (PIR module) and potentiometers (knob position)"
     ),
     Family.MICROCONTROLLERS: (
         "Arduino Uno whose pins are programmed with simple behaviours: on/off, blink, PWM, "
@@ -95,6 +100,7 @@ class StimulusSpec:
     # Range of the interactive slider; a log scale for quantities spanning decades.
     explore: tuple[float, float] = (0.0, 1.0)
     log_scale: bool = False
+    binary: bool = False  # 0/1 quantities (a button in the UI rather than a slider)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +134,8 @@ class ComponentSpec:
     # Optional (positive, negative) supply pins that must be connected together or not at all.
     supply_pins: tuple[str, str] | None = None
     stimulus: StimulusSpec | None = None
+    # Output quantities the part reports, as (name, unit), e.g. ("speed", "rpm").
+    outputs: tuple[tuple[str, str], ...] = ()
 
     @property
     def default_model(self) -> str | None:
@@ -714,8 +722,100 @@ _ARDUINO_SPEC: Final = ComponentSpec(
     driven_pins=("5V", "3V3", *ARDUINO_DIGITAL_PINS),
 )
 
+_POLARISED = (
+    PinSpec("+", "positive terminal", aliases=("pos", "positive", "p", "plus", "1", "red", "vcc")),
+    PinSpec(
+        "-", "negative terminal", aliases=("neg", "negative", "n", "minus", "2", "black", "gnd")
+    ),
+)
+
+_ACTUATOR_SPECS: Final[tuple[ComponentSpec, ...]] = (
+    ComponentSpec(
+        kind=ComponentKind.SWITCH,
+        display_name="Switch",
+        category=Category.PASSIVE,
+        family=Family.SENSORS,
+        designator_prefix="SW",
+        description=(
+            "Switch or push button, closed while 'stimulus' (pressed) is 1. push_button is "
+            "momentary and normally open; push_button_nc is normally closed; toggle stays "
+            "where it is put; reed closes when a magnet is near; limit closes when actuated. "
+            "Small push buttons carry only about 50 mA: switch bigger loads through a "
+            "transistor. Use a pulse or pwl stimulus to press it during the run."
+        ),
+        pins=_TWO_TERMINAL,
+        models=("push_button", "push_button_nc", "toggle", "reed", "limit"),
+        kind_aliases=(
+            "button",
+            "pushbutton",
+            "push_button",
+            "tactile_switch",
+            "momentary_switch",
+            "toggle_switch",
+            "reed_switch",
+            "limit_switch",
+            "spst",
+            "key",
+        ),
+        dc_paths=(("1", "2"),),
+        stimulus=StimulusSpec(
+            "pressed",
+            "",
+            default=0,
+            minimum=0,
+            maximum=1,
+            hint="1 while pressed (or the magnet is near), 0 when released",
+            binary=True,
+        ),
+    ),
+    ComponentSpec(
+        kind=ComponentKind.BUZZER,
+        display_name="Buzzer",
+        category=Category.PASSIVE,
+        family=Family.ACTUATORS,
+        designator_prefix="BZ",
+        description=(
+            "Active buzzer: sounds when its rated voltage ('model') is applied with '+' "
+            "positive; it draws about 30 mA, so a pin or small transistor can drive it."
+        ),
+        pins=_POLARISED,
+        models=("5V", "12V"),
+        kind_aliases=("active_buzzer", "beeper", "piezo_buzzer", "alarm", "sounder", "siren"),
+        dc_paths=(("+", "-"),),
+    ),
+    ComponentSpec(
+        kind=ComponentKind.DC_MOTOR,
+        display_name="DC motor",
+        category=Category.PASSIVE,
+        family=Family.ACTUATORS,
+        designator_prefix="MOT",
+        description=(
+            "Brushed DC motor with back-EMF and inertia: it draws a large starting current, "
+            "then settles. '130' is a 3 V toy motor (about 9000 rpm, 0.15 A unloaded, 2.2 A "
+            "stalled); 'RS-385' is a 12 V motor (about 7000 rpm, 0.2 A unloaded, 3.5 A "
+            "stalled). Drive it through a MOSFET with a flyback diode across the motor "
+            "(cathode to '+'). Its speed is the signal speed(<id>) in rpm. The optional "
+            "stimulus 'load' is the mechanical load as a fraction of stall torque."
+        ),
+        pins=_POLARISED,
+        models=("130", "RS-385"),
+        kind_aliases=("motor", "dcmotor", "brushed_motor", "fan", "fan_motor", "pump"),
+        dc_paths=(("+", "-"),),
+        stimulus=StimulusSpec(
+            "load",
+            "",
+            default=0.1,
+            minimum=0,
+            maximum=1,
+            hint="fraction of stall torque: 0.1 light (fan), 0.5 heavy",
+        ),
+        outputs=(("speed", "rpm"),),
+    ),
+)
+
 CATALOG: Final[dict[ComponentKind, ComponentSpec]] = {
-    spec.kind: spec for spec in (*_SPECS, *_LOGIC_SPECS, *_SENSOR_SPECS, _ARDUINO_SPEC)
+    spec.kind: spec
+    for spec in (*_SPECS, *_LOGIC_SPECS, *_SENSOR_SPECS, _ARDUINO_SPEC, *_ACTUATOR_SPECS)
 }
 
 _KIND_LOOKUP: Final[dict[str, ComponentKind]] = {

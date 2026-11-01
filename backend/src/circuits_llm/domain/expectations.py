@@ -16,7 +16,9 @@ from typing import Final, Literal, cast
 from .units import ValueParseError, parse_value
 
 Operator = Literal[">", ">=", "<", "<="]
-SignalKind = Literal["voltage", "current", "stimulus"]
+SignalKind = Literal["voltage", "current", "stimulus", "output"]
+# Output quantities parts report (see ComponentSpec.outputs), e.g. speed(MOT1) in rpm.
+OUTPUT_QUANTITIES: Final = frozenset({"speed"})
 
 _SIGNAL_RE: Final = re.compile(r"^\s*([A-Za-z]+)\s*\(\s*([A-Za-z0-9_]+)\s*\)\s*$")
 _BARE_NET_RE: Final = re.compile(r"^\s*([A-Za-z0-9_]+)\s*$")
@@ -34,6 +36,7 @@ _QUANTITY_ALIASES: Final = {
     "concentration": "gas",
     "pos": "position",
     "knob": "position",
+    "rpm": "speed",
 }
 
 
@@ -81,7 +84,9 @@ def parse_signal(text: str, stimulus_quantities: frozenset[str]) -> Signal:
         function = _QUANTITY_ALIASES.get(function, function)
         if function in stimulus_quantities:
             return Signal("stimulus", target, function)
-        known = ", ".join(sorted({"V", "I", *stimulus_quantities}))
+        if function in OUTPUT_QUANTITIES:
+            return Signal("output", target, function)
+        known = ", ".join(sorted({"V", "I", *stimulus_quantities, *OUTPUT_QUANTITIES}))
         raise ExpectationSyntaxError(f"unknown signal '{text}'; use one of {known}, e.g. V(OUT)")
     bare = _BARE_NET_RE.match(text)
     if bare is not None:

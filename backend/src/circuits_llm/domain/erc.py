@@ -516,6 +516,10 @@ def _signal_problem(circuit: Circuit, signal: Signal) -> str | None:
         if len(spec.pins) == 2 or component.kind in _METERED_THREE_PIN:
             return None
         return f"the current of '{signal.target}' is not measured; use a series resistor"
+    if signal.kind == "output":
+        if any(name == signal.quantity for name, _ in spec.outputs):
+            return None
+        return f"'{signal.target}' has no {signal.quantity} output"
     if spec.stimulus is None or spec.stimulus.quantity != signal.quantity:
         return f"'{signal.target}' has no {signal.quantity} stimulus"
     return None

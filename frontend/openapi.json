@@ -1273,7 +1273,10 @@
           "gas_sensor",
           "pir",
           "potentiometer",
-          "arduino_uno"
+          "arduino_uno",
+          "switch",
+          "buzzer",
+          "dc_motor"
         ],
         "title": "ComponentKind"
       },
@@ -2610,6 +2613,17 @@
               }
             ],
             "title": "Stimulus Of"
+          },
+          "output_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Of"
           },
           "probed": {
             "type": "boolean",

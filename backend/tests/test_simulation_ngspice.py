@@ -339,3 +339,57 @@ def test_explore_sweeps_a_sensor_both_ways_and_shows_hysteresis() -> None:
 
     assert 5 < switching_lux(result.down) < 15  # dusk: on at ~10 lux
     assert 20 < switching_lux(result.up) < 45  # dawn: off at ~30 lux (hysteresis)
+
+
+@requires_ngspice
+def test_button_runs_a_motor_that_coasts_after_release() -> None:
+    press = {"shape": "pwl", "points": [[0, 0], [0.1, 0], [0.101, 1], [1.1, 1], [1.101, 0]]}
+    data: dict[str, Any] = {
+        "title": "button motor",
+        "components": [
+            _vsrc("V12", "V12", "GND", value=12),
+            {
+                "id": "SW1",
+                "kind": "switch",
+                "stimulus": press,
+                "pins": {"1": "V12", "2": "GATE"},
+            },
+            _two_pin("resistor", "R1", "GATE", "GND", 10e3),
+            {
+                "id": "M1",
+                "kind": "nmos",
+                "model": "IRLZ44N",
+                "pins": {"drain": "DRAIN", "gate": "GATE", "source": "GND"},
+            },
+            {
+                "id": "MOT1",
+                "kind": "dc_motor",
+                "model": "RS-385",
+                "pins": {"+": "V12", "-": "DRAIN"},
+            },
+            {
+                "id": "D1",
+                "kind": "diode",
+                "model": "1N4007",
+                "pins": {"anode": "DRAIN", "cathode": "V12"},
+            },
+        ],
+        "analyses": [{"type": "tran", "stop_time": 1.4, "step_time": 1e-4}],
+        "expectations": [
+            {"description": "spins while pressed", "signal": "speed(MOT1)", "check": "> 5000",
+             "when": "pressed(SW1) > 0.5"},
+        ],
+    }  # fmt: skip
+    result = _simulate(data)
+    assert result.ok, result.error
+    assert all(e.passed for e in result.expectations), [e.detail for e in result.expectations]
+    assert not [c.message for c in result.checks if c.severity == "error"]
+    tran = _sweep(result, 1)
+    rpm = next(t.values for t in tran.traces if t.output_of == "MOT1")
+    time = tran.x.values
+
+    def at(seconds: float) -> float:
+        return rpm[min(range(len(time)), key=lambda i: abs(time[i] - seconds))]
+
+    assert at(0.05) < 1  # not yet pressed
+    assert 0 < at(1.3) < at(1.05)  # released: coasting down on its inertia
