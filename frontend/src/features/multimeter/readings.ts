@@ -15,6 +15,8 @@ export interface Reading {
   env?: StimulusSpec;
   /** Short explanation shown as a tooltip. */
   hint?: string;
+  /** Fixed-width text shown instead of a number (e.g. "sounding", "1250 rpm"). */
+  text?: string;
   /** Visually separate summary rows (V across, I, P) from pin voltages. */
   emphasis?: boolean;
 }
@@ -49,7 +51,10 @@ export function twoPinNames(component: Component): [string, string] {
   return [a!.name, b!.name];
 }
 
-export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf, stim?: StimulusOf): Reading[] {
+/** An active buzzer sounds above half of its ~30 mA rated current. */
+export const BUZZER_SOUNDING_A = 0.015;
+
+export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf, stim?: StimulusOf, out?: StimulusOf): Reading[] {
   const symbol = SYMBOLS[component.kind];
   // Environment the sensor sees: the recorded stimulus at the cursor, else a constant stimulus.
   const spec = STIMULUS[component.kind];
@@ -72,9 +77,19 @@ export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf, 
     const current = i(component.id) ?? null;
     const power = across !== null && current !== null ? across * current : null;
     const source = component.kind === "voltage_source" || component.kind === "current_source";
+    const extra: Reading[] = [];
+    if (component.kind === "buzzer") {
+      const on = current !== null && Math.abs(current) > BUZZER_SOUNDING_A;
+      extra.push({ label: "sounding", value: null, unit: "env", text: on ? "yes" : " no", hint: "Sounds above ~15 mA (half its rated current)", emphasis: true });
+    }
+    if (component.kind === "dc_motor") {
+      const rpm = out?.(component.id);
+      extra.push({ label: "speed", value: rpm ?? null, unit: "env", text: rpm === undefined ? "–" : `${Math.round(rpm)} rpm`.padStart(10, " "), hint: "Shaft speed", emphasis: true });
+    }
     const resistance = RESISTIVE_SENSORS.has(component.kind) && across !== null && current !== null && Math.abs(current) > 1e-15 ? across / current : null;
     return [
       ...envRow,
+      ...extra,
       ...(RESISTIVE_SENSORS.has(component.kind)
         ? [{ label: "R", value: resistance, unit: "Ω" as const, hint: "Effective resistance = V across / I through", emphasis: true }]
         : []),

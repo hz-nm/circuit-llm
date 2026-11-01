@@ -140,6 +140,60 @@ function Minus({ x, y, s = 3.5 }: { x: number; y: number; s?: number }) {
 
 // ---------------------------------------------------------------------------- sensors
 
+/**
+ * Switch contacts (pins at y = 22): push buttons have a bridging contact under a
+ * plunger (NC variants rest closed), toggles a lever, reed switches a lever in a
+ * glass envelope, limit switches a lever with a roller.
+ */
+function SwitchBody({ model }: { model: string }) {
+  const contacts = (
+    <>
+      <path d="M0 22H17M43 22H60" />
+      <circle cx={19} cy={22} r={2} />
+      <circle cx={41} cy={22} r={2} />
+    </>
+  );
+  switch (model) {
+    case "push_button_nc":
+      return (
+        <>
+          {contacts}
+          <path d="M14 25H46M30 25V5M24 5H36" />
+        </>
+      );
+    case "toggle":
+      return (
+        <>
+          {contacts}
+          <path d="M20 21L41 10" />
+        </>
+      );
+    case "reed":
+      return (
+        <>
+          <rect x={9} y={12} width={42} height={16} rx={8} strokeWidth={1} className="sym-body" />
+          {contacts}
+          <path d="M20 21L40 17" />
+        </>
+      );
+    case "limit":
+      return (
+        <>
+          {contacts}
+          <path d="M20 21L38 11" />
+          <circle cx={41} cy={9} r={3} />
+        </>
+      );
+    default: // push_button (momentary, normally open)
+      return (
+        <>
+          {contacts}
+          <path d="M14 14H46M30 14V3M24 3H36" />
+        </>
+      );
+  }
+}
+
 /** Small text drawn as part of a symbol (no stroke, so it reads at any zoom). */
 function SymbolText({ x, y, text, size = 8 }: { x: number; y: number; text: string; size?: number }) {
   return (
@@ -612,6 +666,56 @@ export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
         <path d={ZIGZAG(20)} strokeLinejoin="round" />
         {/* Wiper: lead from w ending in an arrow on the track */}
         <Arrow x1={30} y1={0} x2={30} y2={12} />
+      </>
+    ),
+  },
+  switch: {
+    width: 60,
+    height: 30,
+    pins: twoTerminalPins(["1", "2"], 60, 22),
+    orientation: "two-terminal",
+    labelSide: "top",
+    valueUnit: null,
+    defaultModel: "push_button",
+    draw: (c) => <SwitchBody model={(c.model ?? "push_button").toLowerCase()} />,
+  },
+  buzzer: {
+    width: 60,
+    height: 30,
+    pins: [
+      { name: "+", x: 0, y: 22, side: "WEST" },
+      { name: "-", x: 60, y: 22, side: "EAST" },
+    ],
+    orientation: "two-terminal",
+    labelSide: "top",
+    valueUnit: null,
+    defaultModel: "5V",
+    draw: () => (
+      <>
+        <path d="M0 22H22M38 22H60" />
+        {/* Sounder: a box with a domed top */}
+        <path d="M20 22V16H40V22Z M20 16A10 10 0 0 1 40 16" className="sym-body" strokeLinejoin="round" />
+        <SymbolText x={12} y={14} text="+" size={9} />
+      </>
+    ),
+  },
+  dc_motor: {
+    width: 60,
+    height: 40,
+    pins: [
+      { name: "+", x: 0, y: 20, side: "WEST" },
+      { name: "-", x: 60, y: 20, side: "EAST" },
+    ],
+    orientation: "two-terminal",
+    labelSide: "top",
+    valueUnit: null,
+    defaultModel: "130",
+    draw: () => (
+      <>
+        <path d="M0 20H17M43 20H60" />
+        <circle cx={30} cy={20} r={13} className="sym-body" />
+        <SymbolText x={30} y={20} text="M" size={12} />
+        <SymbolText x={10} y={11} text="+" size={9} />
       </>
     ),
   },

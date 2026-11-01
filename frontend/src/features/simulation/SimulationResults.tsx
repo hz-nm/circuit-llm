@@ -185,12 +185,14 @@ function SweepSection({ result, links, cursor }: { result: SweepResult; links: P
   const groups = useMemo(() => {
     const byUnit = new Map<string, Indexed[]>();
     for (const item of shown) {
-      const key = item.trace.stimulus_of ? `env:${item.trace.unit}` : item.trace.unit;
+      const key = item.trace.stimulus_of ? `env:${item.trace.unit}` : item.trace.output_of ? `out:${item.trace.unit}` : item.trace.unit;
       const list = byUnit.get(key) ?? [];
       list.push(item);
       byUnit.set(key, list);
     }
-    return [...byUnit.entries()].sort(([a], [b]) => Number(b.startsWith("env:")) - Number(a.startsWith("env:")));
+    // Environment charts first, then component outputs (motor speed), then electrical.
+    const rank = (key: string) => (key.startsWith("env:") ? 0 : key.startsWith("out:") ? 1 : 2);
+    return [...byUnit.entries()].sort(([a], [b]) => rank(a) - rank(b));
   }, [shown]);
 
   const series = (items: Indexed[], values: (t: Trace) => number[]): ChartSeries[] =>
@@ -252,22 +254,33 @@ function SweepSection({ result, links, cursor }: { result: SweepResult; links: P
         ) : (
           groups.map(([key, items]) => {
             const env = key.startsWith("env:");
-            const unit = env ? key.slice(4) : key;
-            const name = env ? (ENV_NAMES[unit] ?? "Environment") : unit === "V" ? "Voltage" : unit === "A" ? "Current" : "Value";
+            const output = key.startsWith("out:");
+            const unit = env || output ? key.slice(4) : key;
+            const name = env
+              ? (ENV_NAMES[unit] ?? "Environment")
+              : output
+                ? unit === "rpm"
+                  ? "Motor speed"
+                  : "Output"
+                : unit === "V"
+                  ? "Voltage"
+                  : unit === "A"
+                    ? "Current"
+                    : "Value";
             return (
               <UPlotChart
                 key={key}
-                title={env ? `Environment: ${name.toLowerCase()}` : unit === "V" ? "Voltages" : unit === "A" ? "Currents" : unit || "Values"}
+                title={env ? `Environment: ${name.toLowerCase()}` : output ? name : unit === "V" ? "Voltages" : unit === "A" ? "Currents" : unit || "Values"}
                 x={result.x.values}
                 xLabel={result.type === "tran" ? "t" : result.x.name}
                 xUnit={result.x.unit}
                 logX={logX}
                 yLabel={name}
                 yUnit={unit}
-                plainY={env}
+                plainY={env || output}
                 syncKey={syncKey}
                 cursor={cursor}
-                height={env ? 140 : groups.length > 1 ? 200 : 260}
+                height={env || output ? 140 : groups.length > 1 ? 200 : 260}
                 series={series(items, (t) => t.values)}
               />
             );

@@ -2,16 +2,22 @@
  * What environment each sensor kind responds to. The catalog endpoint doesn't
  * expose this, so it is mirrored here (backend: the "sensors" family).
  */
-import type { Component, ComponentKind } from "../../api/types";
+import type { Component } from "../../api/types";
+import type { SymbolKind } from "./symbols";
 
 export interface StimulusSpec {
-  quantity: "light" | "temperature" | "gas" | "motion" | "position";
+  quantity: "light" | "temperature" | "gas" | "motion" | "position" | "pressed" | "load";
   /** Unit as written in the circuit and in `stimulus_of` traces ("" for 0/1 and 0..1 quantities). */
   unit: string;
   icon: string;
 }
 
-export const STIMULUS: Partial<Record<ComponentKind, StimulusSpec>> = {
+/** Binary stimuli get a button instead of a slider. */
+export const isBinary = (spec: StimulusSpec) => spec.quantity === "pressed" || spec.quantity === "motion";
+
+export const STIMULUS: Partial<Record<SymbolKind, StimulusSpec>> = {
+  switch: { quantity: "pressed", unit: "", icon: "⏻" },
+  dc_motor: { quantity: "load", unit: "", icon: "⚙" },
   ldr: { quantity: "light", unit: "lux", icon: "☀" },
   photodiode: { quantity: "light", unit: "lux", icon: "☀" },
   phototransistor: { quantity: "light", unit: "lux", icon: "☀" },
@@ -31,7 +37,11 @@ export function stimulusText(component: Component): string | null {
   const stimulus = component.stimulus;
   if (!spec || stimulus === undefined || stimulus === null) return null;
   const unit = spec.unit ? ` ${spec.unit}` : "";
-  if (typeof stimulus === "number") return `${spec.quantity} ${withUnit(stimulus, spec.unit)}`;
+  if (typeof stimulus === "number") {
+    if (spec.quantity === "pressed") return stimulus >= 0.5 ? "pressed" : "released";
+    if (spec.quantity === "load") return `load ${num(stimulus * 100)}%`;
+    return `${spec.quantity} ${withUnit(stimulus, spec.unit)}`;
+  }
   switch (stimulus.shape) {
     case "sine":
       return `${spec.quantity} sine ${num(stimulus.offset)} ± ${num(stimulus.amplitude)}${unit} @ ${num(stimulus.frequency)} Hz`;
@@ -70,6 +80,10 @@ export function formatStimulus(value: number, spec: StimulusSpec): string {
       return `${value.toFixed(1).padStart(6, FIGURE_SPACE)} °C`;
     case "position":
       return value.toFixed(2).padStart(5, FIGURE_SPACE);
+    case "pressed":
+      return value >= 0.5 ? "pressed " : "released";
+    case "load":
+      return `${(value * 100).toFixed(0).padStart(3, FIGURE_SPACE)} %`;
     case "motion":
       return value >= 0.5 ? "motion" : "idle  ";
   }

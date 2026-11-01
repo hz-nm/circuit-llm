@@ -1,9 +1,9 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { Component } from "../../api/types";
 import { formatReadout } from "../../lib/si";
-import { currentsAt, netKey, voltagesAt } from "../simulation/live";
+import { currentsAt, netKey, outputsAt, voltagesAt } from "../simulation/live";
 import { exploreRange, type SimulationSession } from "../simulation/session";
-import { formatStimulus, STIMULUS, type StimulusSpec } from "./stimulus";
+import { formatStimulus, isBinary, STIMULUS, type StimulusSpec } from "./stimulus";
 
 const STEPS = 1000;
 const RESISTIVE = new Set(["ldr", "thermistor", "gas_sensor"]);
@@ -28,6 +28,7 @@ export function sensorReadout(
   stimulus: number,
   v: (net: string) => number | undefined,
   i: (id: string) => number | undefined,
+  out?: (id: string) => number | undefined,
 ): string {
   const pinV = (pin: string) => {
     const net = component.pins[pin];
@@ -39,6 +40,12 @@ export function sensorReadout(
   }
   const head = `${spec.icon} ${formatStimulus(stimulus, spec)} →`;
   if (component.kind === "pir") return `${head} out ${fmt(pinV("out"), "V")}`;
+  if (component.kind === "dc_motor") {
+    const rpm = out?.(component.id);
+    const across = (pinV("+") ?? Number.NaN) - (pinV("-") ?? Number.NaN);
+    const speed = rpm === undefined ? "–" : `${Math.round(rpm)}`.padStart(6, " ");
+    return `${head} ${speed} rpm · ${fmt(i(component.id), "A")} · ${fmt(across, "V")}`;
+  }
   const current = i(component.id);
   if (!RESISTIVE.has(component.kind)) return `${head} ${fmt(current, "A")}`;
   const v1 = pinV("1");
@@ -56,9 +63,110 @@ export function sensorReadout(
  */
 export function SensorSlider({ session, component, compact = false }: { session: SimulationSession; component: Component; compact?: boolean }) {
   const spec = STIMULUS[component.kind]!;
-  const { explore, exploreStatus, cursor, live } = session;
-  const active = explore?.sensorId === component.id ? explore : null;
+  if (isBinary(spec)) return <SensorButton session={session} component={component} spec={spec} compact={compact} />;
+  return <StimulusSlider session={session} component={component} spec={spec} compact={compact} />;
+}
+
+interface ControlProps {
+  session: SimulationSession;
+  component: Component;
+  spec: StimulusSpec;
+  compact: boolean;
+}
+
+/** The sensor's readout at the current setting (explore sweep at the cursor), or null. */
+function useReadout(session: SimulationSession, component: Component, spec: StimulusSpec, value: number | null): string | null {
+  const { cursor, live } = session;
   const x = useSyncExternalStore(cursor.subscribe, cursor.get);
+  if (value === null || !live || x === null) return null;
+  const volts = voltagesAt(live, x);
+  const amps = currentsAt(live, x);
+  const outs = outputsAt(live, x);
+  return sensorReadout(component, spec, value, (net) => volts.get(netKey(net)), (id) => amps.get(netKey(id)), (id) => outs.get(netKey(id)));
+}
+
+/**
+ * Button for binary stimuli (switches, PIR motion). Push buttons are momentary
+ * (pressed while held: pointer or Space/Enter); toggle, reed and limit switches
+ * and the PIR flip on click. Pressing selects the up sweep at 1, releasing the
+ * down sweep at 0, through the same explore machinery as the sliders.
+ */
+function SensorButton({ session, component, spec, compact }: ControlProps) {
+  const active = session.explore?.sensorId === component.id ? session.explore : null;
+  const momentary = component.kind === "switch" && (component.model ?? "push_button").toLowerCase().startsWith("push_button");
+  const constant = typeof component.stimulus === "number" ? component.stimulus : 0;
+  const pressed = (active ? active.value : constant) >= 0.5;
+  const sweeping = session.exploreStatus?.sensorId === component.id && session.exploreStatus.kind === "sweeping";
+  const error = session.exploreStatus?.sensorId === component.id && session.exploreStatus.kind === "error" ? session.exploreStatus.message : null;
+
+  // A press before the explore sweep has loaded is applied as soon as it arrives.
+  const pending = useRef<number | null>(null);
+  const { setExploreValue, startExplore } = session;
+  useEffect(() => {
+    if (active && pending.current !== null) {
+      setExploreValue(pending.current);
+      pending.current = null;
+    }
+  }, [active, setExploreValue]);
+
+  const set = (value: number) => {
+    if (active) setExploreValue(value);
+    else {
+      pending.current = value;
+      if (!sweeping) startExplore(component.id);
+    }
+  };
+  const isKey = (e: KeyboardEvent) => e.key === " " || e.key === "Enter";
+  const handlers = momentary
+    ? {
+        onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          set(1);
+        },
+        onPointerUp: () => set(0),
+        onPointerCancel: () => set(0),
+        onKeyDown: (e: KeyboardEvent) => {
+          if (!isKey(e)) return;
+          e.preventDefault();
+          if (!e.repeat) set(1);
+        },
+        onKeyUp: (e: KeyboardEvent) => {
+          if (!isKey(e)) return;
+          e.preventDefault();
+          set(0);
+        },
+      }
+    : { onClick: () => set(pressed ? 0 : 1) };
+
+  const label = spec.quantity === "motion" ? (pressed ? "motion" : "no motion") : momentary ? (pressed ? "pressed" : "press") : pressed ? "on" : "off";
+  const readout = useReadout(session, component, spec, active ? active.value : null);
+
+  return (
+    <span className={`flex items-center gap-1.5 ${compact ? "" : "flex-wrap"}`}>
+      {!compact && <span className="font-mono text-xs font-semibold">{component.id}</span>}
+      <button
+        type="button"
+        aria-pressed={pressed}
+        title={momentary ? `Hold to press ${component.id}` : `Click to flip ${component.id}`}
+        className={`select-none rounded-md border px-2 py-0.5 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-accent ${
+          pressed ? "border-accent bg-accent text-accent-ink" : "border-line bg-panel text-ink hover:bg-sunken"
+        }`}
+        {...handlers}
+      >
+        {momentary ? "⏺ " : spec.quantity === "motion" ? "◎ " : "⏻ "}
+        {label}
+      </button>
+      {sweeping && <span className="text-[11px] text-muted">Sweeping…</span>}
+      {error && <span className="text-[11px] text-danger">{error}</span>}
+      {!compact && readout && <span className="whitespace-pre font-mono text-xs tabular-nums">{readout}</span>}
+    </span>
+  );
+}
+
+/** Slider for continuous stimuli (light, temperature, gas, position, motor load). */
+function StimulusSlider({ session, component, spec, compact }: ControlProps) {
+  const { explore, exploreStatus } = session;
+  const active = explore?.sensorId === component.id ? explore : null;
 
   const range = active ? exploreRange(active.data) : null;
   const log = active?.data.log_scale ?? false;
@@ -70,12 +178,7 @@ export function SensorSlider({ session, component, compact = false }: { session:
     if (!active && !sweeping) session.startExplore(component.id);
   };
 
-  let readout: string | null = null;
-  if (active && live && x !== null) {
-    const volts = voltagesAt(live, x);
-    const amps = currentsAt(live, x);
-    readout = sensorReadout(component, spec, active.value, (net) => volts.get(netKey(net)), (id) => amps.get(netKey(id)));
-  }
+  const readout = useReadout(session, component, spec, active ? active.value : null);
 
   return (
     <span className={`flex items-center gap-1.5 ${compact ? "" : "flex-wrap"}`}>

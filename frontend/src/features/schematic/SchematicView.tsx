@@ -5,9 +5,10 @@ import { formatReadout } from "../../lib/si";
 import { Button } from "../../ui/Button";
 import { useIsDark } from "../../ui/theme";
 import { MeterCard } from "../multimeter/MeterCard";
-import { currentsAt, netKey, stimuliAt, voltagesAt } from "../simulation/live";
+import { currentsAt, netKey, outputsAt, stimuliAt, voltagesAt } from "../simulation/live";
 import type { SimulationSession } from "../simulation/session";
 import { seriesColor } from "../simulation/UPlotChart";
+import { ACTIVITY_CSS, ActivityLayer } from "./ActivityLayer";
 import { pinCurrents, type FlowMode } from "./currentFlow";
 import { FlowLayer } from "./FlowLayer";
 import { layoutCircuit, type ElkLike } from "./layout";
@@ -67,6 +68,7 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
   const voltages = useMemo(() => (live ? voltagesAt(live, x) : null), [live, x]);
   const currents = useMemo(() => (live ? currentsAt(live, x) : null), [live, x]);
   const stimuli = useMemo(() => (live ? stimuliAt(live, x) : null), [live, x]);
+  const outputs = useMemo(() => (live ? outputsAt(live, x) : null), [live, x]);
 
   // Current flow: currents into every pin at the cursor (recorded + Kirchhoff), drawn as moving dots.
   const [flowMode, setFlowMode] = useState<FlowMode>(initialFlowMode);
@@ -173,6 +175,7 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
       voltages: live ? voltages : null,
       currents: live ? currents : null,
       stimuli: live ? stimuli : null,
+      outputs: live ? outputs : null,
       plotted: session?.probes.components.has(netKey(id)) ?? false,
       onTogglePlot: session && live ? () => session.probes.togglePlot(id) : undefined,
       issues: session?.ratingIssues.get(id) ?? [],
@@ -240,10 +243,11 @@ export function SchematicView({ circuit, issues, session }: SchematicViewProps) 
         {!schematic && layout.isPending && <p className="p-4 text-sm text-muted">Laying out schematic…</p>}
         {schematic && (
           <svg className="h-full w-full select-none" onPointerMove={onSvgPointerMove} onPointerLeave={() => setHover(null)} onClick={onSvgClick}>
-            <style>{SCHEMATIC_CSS}</style>
+            <style>{SCHEMATIC_CSS + ACTIVITY_CSS}</style>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
               <SchematicContent schematic={schematic} highlight={highlight} ratings={ratings} live={overlay} probe={probeHandlers} />
               {flowPins && <FlowLayer schematic={schematic} pins={flowPins} mode={flowMode} />}
+              {live && <ActivityLayer schematic={schematic} currents={currents} outputs={outputs} />}
               {/* Inline stimulus slider under each sensor (the dock has the same control for keyboard users). */}
               {session?.result?.ok &&
                 schematic.components

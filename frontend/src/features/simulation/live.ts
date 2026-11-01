@@ -5,6 +5,7 @@
  */
 import type { AnalysisResult, SimulationResult, SweepResult } from "../../api/types";
 
+
 // ---------------------------------------------------------------------------- cursor store
 
 export type CursorSource = "scrubber" | "player" | `plot:${string}`;
@@ -59,7 +60,14 @@ export const netKey = (net: string) => net.toUpperCase();
  * currents keyed by component id (both upper-cased), static (op) or per sample.
  */
 export type LiveVoltages =
-  | { kind: "static"; values: Map<string, number>; currents: Map<string, number>; stimuli: Map<string, number>; maxAbs: number }
+  | {
+      kind: "static";
+      values: Map<string, number>;
+      currents: Map<string, number>;
+      stimuli: Map<string, number>;
+      outputs: Map<string, number>;
+      maxAbs: number;
+    }
   | {
       kind: "sweep";
       x: Float64Array;
@@ -67,6 +75,8 @@ export type LiveVoltages =
       currents: Map<string, Float64Array>;
       /** Sensor environment (light, temperature, ...) by component id, from `stimulus_of` traces. */
       stimuli: Map<string, Float64Array>;
+      /** Output quantities (motor speed) by component id, from `output_of` traces. */
+      outputs: Map<string, Float64Array>;
       maxAbs: number;
       sweep: SweepResult;
     };
@@ -85,8 +95,13 @@ export function liveFromSweep(sweep: SweepResult): LiveVoltages | null {
   const values = new Map<string, Float64Array>();
   const currents = new Map<string, Float64Array>();
   const stimuli = new Map<string, Float64Array>();
+  const outputs = new Map<string, Float64Array>();
   let maxAbs = 0;
   for (const trace of sweep.traces) {
+    if (trace.output_of) {
+      outputs.set(netKey(trace.output_of), arr(trace.values));
+      continue;
+    }
     if (trace.stimulus_of) {
       stimuli.set(netKey(trace.stimulus_of), arr(trace.values));
       continue;
@@ -97,7 +112,7 @@ export function liveFromSweep(sweep: SweepResult): LiveVoltages | null {
     for (const v of a) maxAbs = Math.max(maxAbs, Math.abs(v));
     values.set(netKey(trace.net), a);
   }
-  return values.size > 0 ? { kind: "sweep", x: arr(sweep.x.values), values, currents, stimuli, maxAbs, sweep } : null;
+  return values.size > 0 ? { kind: "sweep", x: arr(sweep.x.values), values, currents, stimuli, outputs, maxAbs, sweep } : null;
 }
 
 export function buildLiveVoltages(result: SimulationResult | null | undefined, driver: number | null): LiveVoltages | null {
@@ -117,7 +132,7 @@ export function buildLiveVoltages(result: SimulationResult | null | undefined, d
       maxAbs = Math.max(maxAbs, Math.abs(v));
     }
     const currents = new Map(Object.entries(op.branch_currents).map(([id, i]) => [netKey(id), i]));
-    return { kind: "static", values, currents, stimuli: new Map(), maxAbs };
+    return { kind: "static", values, currents, stimuli: new Map(), outputs: new Map(), maxAbs };
   }
   return null;
 }
@@ -156,6 +171,15 @@ export function stimuliAt(live: LiveVoltages, x: number | null): Map<string, num
   const at = x ?? live.x[0] ?? 0;
   const out = new Map<string, number>();
   for (const [id, ys] of live.stimuli) out.set(id, sampleAt(live.x, ys, at));
+  return out;
+}
+
+/** Output quantities (motor speed) at the cursor. */
+export function outputsAt(live: LiveVoltages, x: number | null): Map<string, number> {
+  if (live.kind === "static") return live.outputs;
+  const at = x ?? live.x[0] ?? 0;
+  const out = new Map<string, number>();
+  for (const [id, ys] of live.outputs) out.set(id, sampleAt(live.x, ys, at));
   return out;
 }
 

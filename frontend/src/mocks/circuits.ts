@@ -151,7 +151,25 @@ export const arduinoNightLight: Circuit = {
   probes: [],
 };
 
-export const MOCK_CIRCUITS: readonly Circuit[] = [ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo, logicZoo, sensorZoo, arduinoNightLight];
+/** Push button switching a motor through a logic-level MOSFET, and a buzzer on a toggle switch. */
+export const motorButton: Circuit = {
+  title: "Motor push button",
+  description: "",
+  components: [
+    { id: "V1", kind: "voltage_source", pins: { "+": "V12", "-": "GND" }, value: 12 },
+    { id: "SW1", kind: "switch", model: "push_button", pins: { "1": "V12", "2": "GATE" } },
+    { id: "R1", kind: "resistor", value: 10000, pins: { "1": "GATE", "2": "GND" } },
+    { id: "Q1", kind: "nmos", model: "IRLZ44N", pins: { drain: "DRAIN", gate: "GATE", source: "GND" } },
+    { id: "M1", kind: "dc_motor", model: "RS-385", stimulus: 0.1, pins: { "+": "V12", "-": "DRAIN" } },
+    { id: "D1", kind: "diode", model: "1N4007", pins: { anode: "DRAIN", cathode: "V12" } },
+    { id: "SW2", kind: "switch", model: "toggle", stimulus: 1, pins: { "1": "V12", "2": "BZ" } },
+    { id: "BZ1", kind: "buzzer", model: "12V", pins: { "+": "BZ", "-": "GND" } },
+  ],
+  analyses: [{ type: "op" }],
+  probes: [],
+};
+
+export const MOCK_CIRCUITS: readonly Circuit[] = [motorButton, ledCircuit, rcLowPass, opampAmplifier, transistorSwitch, symbolZoo, logicZoo, sensorZoo, arduinoNightLight];
 
 // ---------------------------------------------------------------------------- simulation results
 

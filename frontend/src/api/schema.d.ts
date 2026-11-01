@@ -385,7 +385,7 @@ export interface components {
          * ComponentKind
          * @enum {string}
          */
-        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "ldr" | "thermistor" | "photodiode" | "phototransistor" | "gas_sensor" | "pir" | "potentiometer" | "arduino_uno";
+        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "ldr" | "thermistor" | "photodiode" | "phototransistor" | "gas_sensor" | "pir" | "potentiometer" | "arduino_uno" | "switch" | "buzzer" | "dc_motor";
         /** ComponentSpecOut */
         ComponentSpecOut: {
             kind: components["schemas"]["ComponentKind"];
@@ -898,6 +898,8 @@ export interface components {
             pin?: string | null;
             /** Stimulus Of */
             stimulus_of?: string | null;
+            /** Output Of */
+            output_of?: string | null;
             /**
              * Probed
              * @default true

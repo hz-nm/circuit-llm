@@ -12,6 +12,8 @@ interface Props {
   currents: ReadonlyMap<string, number> | null;
   /** Sensor environment by upper-cased component id, at the cursor. */
   stimuli?: ReadonlyMap<string, number> | null;
+  /** Output quantities (motor speed) by upper-cased component id, at the cursor. */
+  outputs?: ReadonlyMap<string, number> | null;
   pinned: boolean;
   onUnpin?: () => void;
   /** Present when the part can be plotted (two-pin parts with a result). */
@@ -26,12 +28,13 @@ interface Props {
  * monospace font and the card has a fixed width, so nothing moves while the
  * timeline plays.
  */
-export function MeterCard({ component, voltages, currents, stimuli = null, pinned, onUnpin, plotted, onTogglePlot, issues = [] }: Props) {
+export function MeterCard({ component, voltages, currents, stimuli = null, outputs = null, pinned, onUnpin, plotted, onTogglePlot, issues = [] }: Props) {
   const rows = meterReadings(
     component,
     (net) => voltages?.get(netKey(net)),
     (id) => currents?.get(netKey(id)),
     (id) => stimuli?.get(netKey(id)),
+    (id) => outputs?.get(netKey(id)),
   );
   const summary = componentSummary(component);
   const noData = voltages === null;
@@ -69,7 +72,9 @@ export function MeterCard({ component, voltages, currents, stimuli = null, pinne
               <dt className="whitespace-nowrap" title={row.hint}>
                 {row.label}
               </dt>
-              <dd className="whitespace-pre text-right font-mono tabular-nums text-ink">{row.unit === "env" && row.env
+              <dd className="whitespace-pre text-right font-mono tabular-nums text-ink">{row.text !== undefined
+                  ? row.text
+                  : row.unit === "env" && row.env
                   ? row.value === null
                     ? "–"
                     : formatStimulus(row.value, row.env)
