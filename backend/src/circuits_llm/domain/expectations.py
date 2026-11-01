@@ -100,7 +100,10 @@ def parse_check(text: str) -> Comparison:
     """``> 5m``, ``<= 0.5`` and so on."""
     match = _CHECK_RE.match(text)
     if match is None:
-        raise ExpectationSyntaxError(f"check '{text}' must look like '> 5m' or '< 0.5'")
+        raise ExpectationSyntaxError(
+            f"check '{text}' must be one of >, >=, <, <= and a value, e.g. '> 5m' or '< 0.5' "
+            "(no '='; use a range of two expectations instead)"
+        )
     return Comparison(cast(Operator, match[1]), _value(match[2]))
 
 
@@ -108,6 +111,9 @@ def parse_condition(text: str, stimulus_quantities: frozenset[str]) -> tuple[Sig
     """``light(LDR1) < 1`` -> (signal, comparison)."""
     match = _CONDITION_RE.match(text)
     if match is None:
-        raise ExpectationSyntaxError(f"condition '{text}' must look like 'light(LDR1) < 1'")
+        raise ExpectationSyntaxError(
+            f"condition '{text}' must be a signal, one of >, >=, <, <= and a value, "
+            "e.g. 'V(IN) > 1.4' or 'light(LDR1) < 5' (no '=')"
+        )
     comparison = Comparison(cast(Operator, match[2]), _value(match[3]))
     return parse_signal(match[1], stimulus_quantities), comparison

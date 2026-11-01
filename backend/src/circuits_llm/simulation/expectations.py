@@ -17,6 +17,7 @@ from circuits_llm.domain import (
     CATALOG,
     Circuit,
     Component,
+    ComponentKind,
     Expectation,
     Issue,
     Severity,
@@ -122,12 +123,30 @@ def _failure_issue(circuit: Circuit, expectation: Expectation, outcome: Expectat
         elif signal is not None:  # a voltage/current condition: blame a static sensor
             static = [c.id for c in circuit.components if _static_sensor(c)]
             sensor = static[0] if len(static) == 1 else None
+            if sensor is None and signal.kind == "voltage":
+                sensor = _static_source_driving(circuit, signal.target)
     return Issue(
         severity=Severity.ERROR,
         code="expectation_unreached" if sensor else "expectation_failed",
         message=message,
         component_id=sensor,
     )
+
+
+def _static_source_driving(circuit: Circuit, net: str) -> str | None:
+    """The one waveform-less voltage source whose '+' pin is on ``net``, if any.
+
+    Weak models often give an input source only an AC magnitude, so in the transient
+    the input sits at its DC value and conditions on it never happen.
+    """
+    sources = [
+        c.id
+        for c in circuit.components
+        if c.kind is ComponentKind.VOLTAGE_SOURCE
+        and c.waveform is None
+        and c.pins.get("+", "").lower() == net.lower()
+    ]
+    return sources[0] if len(sources) == 1 else None
 
 
 def _static_sensor(component: Component) -> bool:

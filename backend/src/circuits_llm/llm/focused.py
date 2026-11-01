@@ -129,11 +129,6 @@ _STIMULUS_SYSTEM: Final = (
     "You choose how the environment changes during a circuit simulation. Answer with ONE "
     "JSON object only, no prose and no code fences."
 )
-_STIMULUS_SCHEMA: Final[dict[str, Any]] = {
-    "type": "object",
-    "properties": {"stimulus": {"type": "object"}},
-    "required": ["stimulus"],
-}
 
 
 def _stop_time(circuit: Circuit) -> float:
@@ -174,23 +169,49 @@ async def fix_unreached_stimuli(
         if issue.component_id:
             reasons.setdefault(issue.component_id, []).append(issue.message)
     changed = False
-    for sensor_id, sensor_reasons in list(reasons.items())[:MAX_SENSORS_FIXED]:
-        component = circuit.component(sensor_id)
-        target = by_id.get(sensor_id.lower())
-        if component is None or target is None or CATALOG[component.kind].stimulus is None:
+    for component_id, component_reasons in list(reasons.items())[:MAX_SENSORS_FIXED]:
+        component = circuit.component(component_id)
+        target = by_id.get(component_id.lower())
+        if component is None or target is None:
             continue
-        question = _stimulus_question(
-            component.id, component.kind, sensor_reasons, _stop_time(circuit)
-        )
+        stop = _stop_time(circuit)
+        if CATALOG[component.kind].stimulus is not None:
+            field = "stimulus"
+            question = _stimulus_question(component.id, component.kind, component_reasons, stop)
+        elif component.kind is ComponentKind.VOLTAGE_SOURCE:
+            field = "waveform"
+            question = _source_question(
+                component.id, component.pins.get("+", "?"), component_reasons, stop
+            )
+        else:
+            continue
         messages = [Message("system", _STIMULUS_SYSTEM), Message("user", question)]
+        schema = {"type": "object", "properties": {field: {"type": "object"}}, "required": [field]}
         try:
-            completion = await provider.complete(messages, response_schema=_STIMULUS_SCHEMA)
+            completion = await provider.complete(messages, response_schema=schema)
         except ProviderError as exc:
-            logger.info("stimulus fix for %s failed: %s", sensor_id, exc.kind.value)
+            logger.info("%s fix for %s failed: %s", field, component_id, exc.kind.value)
             continue
-        answer = find_json_object(completion.text, "stimulus")
-        if answer is not None and answer.get("stimulus") is not None:
-            target.pop("waveform", None)  # weak models put the profile here
-            target["stimulus"] = answer["stimulus"]
+        answer = find_json_object(completion.text, field)
+        if answer is not None and isinstance(answer.get(field), dict):
+            if field == "stimulus":
+                target.pop("waveform", None)  # weak models put the profile here
+            target[field] = answer[field]
             changed = True
     return json.dumps(envelope) if changed else None
+
+
+def _source_question(source_id: str, net: str, reasons: list[str], stop: float) -> str:
+    return "\n".join(
+        [
+            f"Voltage source {source_id} drives net {net}, but it has no waveform, so it stays "
+            "constant during the transient simulation "
+            f"(0 to {stop:g} s).",
+            "These checks need conditions that never happen:",
+            *(f"- {reason}" for reason in reasons),
+            f"Give {source_id} a waveform (sine, pulse or pwl) so that every condition above "
+            "happens during the run.",
+            'Answer exactly like: {"waveform": {"shape": "sine", "offset": 0, '
+            '"amplitude": <volts>, "frequency": <hertz>}}',
+        ]
+    )
