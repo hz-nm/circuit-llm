@@ -171,14 +171,37 @@ def _balanced_end(text: str, start: int) -> int | None:
 
 
 def _loads_lenient(text: str) -> object:
+    # strict=False accepts raw newlines and tabs inside strings (multi-line replies).
     try:
-        return json.loads(text)
+        return json.loads(text, strict=False)
     except ValueError:
         pass
     try:
-        return json.loads(_clean_json(text))
+        return json.loads(_clean_json(text), strict=False)
     except ValueError:
         return None
+
+
+_JSON_ESCAPES: Final = frozenset('"\\/bfnrtu')
+
+
+def _repair_escapes(quoted: str) -> str:
+    """Double backslashes that do not start a valid JSON escape (e.g. LaTeX ``\\Omega``)."""
+    out: list[str] = []
+    index = 0
+    while index < len(quoted):
+        char = quoted[index]
+        if char == "\\":
+            following = quoted[index + 1] if index + 1 < len(quoted) else ""
+            if following in _JSON_ESCAPES and following:
+                out.append(quoted[index : index + 2])
+                index += 2
+                continue
+            out.append("\\\\")
+        else:
+            out.append(char)
+        index += 1
+    return "".join(out)
 
 
 def _clean_json(text: str) -> str:
@@ -189,7 +212,7 @@ def _clean_json(text: str) -> str:
         char = text[index]
         if char == '"':
             end = _string_end(text, index, '"')
-            out.append(text[index:end])
+            out.append(_repair_escapes(text[index:end]))
             index = end
         elif char == "'":
             end = _string_end(text, index, "'")

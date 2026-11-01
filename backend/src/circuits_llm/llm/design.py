@@ -136,6 +136,17 @@ async def _run_endpoint(
         # repair round (which tends to reproduce the same answer).
         text = await fill_missing_behaviors(completion.text, provider) or completion.text
         parsed, problems, warnings, issues = await _validate(text, extra_checks)
+        if parsed.circuit is None and problems:
+            logger.warning(
+                "endpoint %s attempt %d: unusable answer (%d chars, finish reason %s), ends: %r",
+                endpoint.id,
+                attempt,
+                len(completion.text),
+                completion.finish_reason,
+                completion.text[-160:],
+            )
+            if _was_truncated(completion.finish_reason):
+                problems.insert(0, TRUNCATED_PROBLEM)
         unreached = [i for i in issues if i.code == "expectation_unreached" and i.component_id]
         if unreached and parsed.circuit is not None:
             fixed = await fix_unreached_stimuli(text, unreached, parsed.circuit, provider)
@@ -192,6 +203,18 @@ async def _complete_with_retry(
             )
             await asyncio.sleep(RETRY_BACKOFF_S)
     raise AssertionError("unreachable: the retry loop always returns or raises")
+
+
+TRUNCATED_PROBLEM: Final = (
+    "Your answer was cut off before the JSON ended (it reached the output length limit). "
+    "Answer again with a short 'reply' (3 sentences at most) and only the components the "
+    "circuit needs, as one complete JSON object."
+)
+_TRUNCATION_REASONS: Final = frozenset({"length", "max_tokens", "max_output_tokens"})
+
+
+def _was_truncated(finish_reason: str | None) -> bool:
+    return finish_reason is not None and finish_reason.lower() in _TRUNCATION_REASONS
 
 
 async def _validate(

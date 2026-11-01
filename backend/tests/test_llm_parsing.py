@@ -311,3 +311,12 @@ def test_arduino_behaviors_from_loose_output_and_generated_sketch() -> None:
     code = sketch(arduino)
     assert "analogWrite(9, 64);" in code  # 25% of 255
     assert "digitalWrite(13, (now % 500) < 250 ? HIGH : LOW);" in code
+
+
+def test_raw_newlines_and_latex_escapes_in_strings_are_repaired() -> None:
+    circuit = json.dumps(FEW_SHOT_EXAMPLES[0][1]["circuit"])
+    # A multi-line reply with a LaTeX escape: invalid JSON, but clearly meant.
+    raw = '{"reply": "Line one.\nR = \\(V/I\\) = 470 \\Omega", "circuit": ' + circuit + "}"
+    result = parse_model_output(raw)
+    assert result.circuit is not None, result.problems
+    assert result.reply.startswith("Line one.\nR = ")
