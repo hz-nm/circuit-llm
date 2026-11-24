@@ -56,7 +56,10 @@ night.
 A current probe target is a two-pin component id; a voltage probe target is a net name.
 An expectation states what the circuit must do; the simulator checks it. "signal" is V(net),
 I(component) or a sensor stimulus such as light(LDR1); "check" is >, >=, < or <= and a value;
-the optional "when" is one more comparison, e.g. "V(IN) > 3". Currents are magnitudes."""
+the optional "when" is one more comparison, e.g. "V(IN) > 3". Currents are magnitudes.
+"when" can also be "time > 0.5" (checked on the transient) or "frequency < 100" (checked on \
+the AC sweep, where V(OUT) is the AC magnitude), e.g. a low-pass passband: "signal": "V(OUT)", \
+"check": "> 0.9", "when": "frequency < 100"."""
 
 _RULES: Final = f"""\
 1. Answer with ONE JSON object in exactly the format below and nothing else: no prose outside \
@@ -81,8 +84,9 @@ set "circuit" to null.
 12. Keep "reply" short: what the circuit does, key values and why, what to look at in the plots.
     Write maths as plain text such as "f = 1/(2*pi*R*C) = 1.0 kHz"; never use LaTeX or $...$.
 13. Add 1 to 3 "expectations" that capture what the user asked for (e.g. "the LED is on in \
-the dark and off in daylight"), using signals your analyses record. If one fails, fix the \
-circuit, not the expectation."""
+the dark and off in daylight"), using signals your analyses record. If one fails, change the \
+circuit when it does not do what was asked; correct the expectation only when it describes \
+correct behaviour wrongly (e.g. the wrong threshold for a part)."""
 
 _EXAMPLE_LED_REQUEST: Final = "Light a red LED from a 9 V battery at about 15 mA."
 _EXAMPLE_LED: Final[dict[str, Any]] = {

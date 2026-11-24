@@ -1,10 +1,12 @@
 """Verify a circuit's expectations (what it must do) on its simulation results.
 
 Each expectation is checked on the first analysis that records its signals, preferring
-the transient, then a DC sweep, then the operating point. Only samples where the
-``when`` condition holds count, and 90% of them must pass so that switching edges and
-settling do not cause false failures. Currents are compared as magnitudes, so the
-model never has to reason about SPICE sign conventions.
+the transient, then a DC sweep, then the operating point, then the AC sweep (where
+signals are magnitudes, so ``when: frequency < 100`` checks a passband). Only samples
+where the ``when`` condition holds count, and 90% of them must pass so that switching
+edges and settling do not cause false failures. ``time = 1.5`` or ``frequency = 1k``
+picks the nearest sample. Currents are compared as magnitudes, so the model never has
+to reason about SPICE sign conventions.
 """
 
 from __future__ import annotations
@@ -43,8 +45,14 @@ from .results import (
 PASS_FRACTION: Final = 0.9
 SETTLE_FRACTION: Final = 0.3  # of each stretch where `when` holds, ignored as settling
 _NEVER_HAPPENS: Final = "never happens"
-_ANALYSIS_ORDER: Final = ("tran", "dc", "op")
-_ANALYSIS_NAMES: Final = {"tran": "transient", "dc": "DC sweep", "op": "operating point"}
+_ANALYSIS_ORDER: Final = ("tran", "dc", "op", "ac")
+_ANALYSIS_NAMES: Final = {
+    "tran": "transient",
+    "dc": "DC sweep",
+    "op": "operating point",
+    "ac": "AC sweep",
+}
+_AXIS_OF: Final = {"tran": "time", "ac": "frequency"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,9 +76,10 @@ def _samples(analysis: AnalysisResult) -> _Samples | None:
         series |= {("voltage", n.lower()): [v] for n, v in analysis.node_voltages.items()}
         series |= {("current", c.lower()): [i] for c, i in analysis.branch_currents.items()}
         return _Samples("op", "", "", [0.0], series)
-    if analysis.type == "ac":
-        return None
     series = {}
+    axis = _AXIS_OF.get(analysis.type)
+    if axis is not None:
+        series[("axis", axis)] = analysis.x.values
     for trace in analysis.traces:
         if trace.net:
             series[("voltage", trace.net.lower())] = trace.values
@@ -129,7 +138,7 @@ def _failure_issue(circuit: Circuit, expectation: Expectation, outcome: Expectat
             signal = None
         if signal is not None and signal.kind == "stimulus":
             sensor = signal.target
-        elif signal is not None:  # a voltage/current condition: blame a static sensor
+        elif signal is not None and signal.kind != "axis":  # blame a static sensor
             static = [c.id for c in circuit.components if _static_sensor(c)]
             sensor = static[0] if len(static) == 1 else None
             if sensor is None and signal.kind == "voltage":
@@ -187,7 +196,8 @@ def _evaluate(
         return outcome(
             False,
             f"{', '.join(map(str, needed))} is not recorded by any analysis; add a 'tran' "
-            "(or 'op') analysis that covers it.",
+            "(or 'op') analysis that covers it, or an 'ac' analysis for a frequency "
+            "condition.",
         )
     values = samples.get(signal) or []
     selected = _select(values, samples, when)
@@ -209,7 +219,8 @@ def _evaluate(
     return outcome(
         False,
         f"{signal} was {format_si(worst, unit)} (needs {wanted}){condition}{at}, in the "
-        f"{analysis}. Change the circuit so it does this.",
+        f"{analysis}. Change the circuit so it does this, or correct the expectation if it "
+        "describes correct behaviour wrongly.",
     )
 
 
@@ -218,8 +229,19 @@ def _select(
 ) -> list[tuple[int, float]]:
     if when is None:
         return list(enumerate(values))
-    condition_values = samples.get(when[0]) or []
-    holding = [i for i, c in enumerate(condition_values[: len(values)]) if when[1].holds(c)]
+    condition_values = list((samples.get(when[0]) or [])[: len(values)])
+    signal, comparison = when
+    if comparison.operator == "=":  # "time = 1.5", "frequency = 1k": the nearest sample
+        if not condition_values:
+            return []
+        nearest = min(
+            range(len(condition_values)),
+            key=lambda i: abs(condition_values[i] - comparison.value),
+        )
+        return [(nearest, values[nearest])]
+    holding = [i for i, c in enumerate(condition_values) if comparison.holds(c)]
+    if signal.kind == "axis":  # a stretch of time or frequency: nothing to settle
+        return [(i, values[i]) for i in holding]
     return [(i, values[i]) for i in _settled(holding, samples)]
 
 

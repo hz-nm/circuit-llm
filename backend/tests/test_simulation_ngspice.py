@@ -437,3 +437,36 @@ def test_555_one_shot_and_arduino_follow_and_hold() -> None:
     assert high_span("P7") == pytest.approx((0.1, 0.31), abs=5e-3)  # ... held 0.1 s longer
     pwm = next(t.values for t in tran.traces if t.net == "P9")
     assert 0.2 < sum(v > 2.5 for v in pwm) / len(pwm) < 0.4  # duty follows the 30% knob
+
+
+@requires_ngspice
+def test_expectations_on_time_and_frequency() -> None:
+    # A 1.6 kHz RC low-pass: a passband and a stop-band check on the AC sweep, and a
+    # settled-output check on the transient using "time".
+    data = {
+        "title": "RC low-pass",
+        "components": [
+            {"id": "V1", "kind": "voltage_source", "value": 1, "ac_magnitude": 1,
+             "pins": {"+": "IN", "-": "GND"}},
+            _two_pin("resistor", "R1", "IN", "OUT", 1e3),
+            _two_pin("capacitor", "C1", "OUT", "GND", 100e-9),
+        ],
+        "analyses": [
+            {"type": "ac", "start_frequency": 10, "stop_frequency": 1e5, "points_per_decade": 20},
+            {"type": "tran", "stop_time": 2e-3, "step_time": 1e-5},
+        ],
+        "expectations": [
+            {"description": "passband", "signal": "V(OUT)", "check": "> 0.95",
+             "when": "frequency < 300"},
+            {"description": "attenuates 20 kHz", "signal": "V(OUT)", "check": "< 0.1",
+             "when": "frequency = 20k"},
+            {"description": "charged after 1 ms", "signal": "V(OUT)", "check": "> 0.99",
+             "when": "time > 1m"},
+            {"description": "far too strict", "signal": "V(OUT)", "check": "< 0.5",
+             "when": "frequency < 300"},
+        ],
+    }  # fmt: skip
+    result = _simulate(data)
+    assert result.ok, result.error
+    assert [e.passed for e in result.expectations] == [True, True, True, False]
+    assert "frequency" in result.expectations[3].detail

@@ -15,14 +15,16 @@ from typing import Final, Literal, cast
 
 from .units import ValueParseError, parse_value
 
-Operator = Literal[">", ">=", "<", "<="]
-SignalKind = Literal["voltage", "current", "stimulus", "output"]
+Operator = Literal[">", ">=", "<", "<=", "="]
+SignalKind = Literal["voltage", "current", "stimulus", "output", "axis"]
 # Output quantities parts report (see ComponentSpec.outputs), e.g. speed(MOT1) in rpm.
 OUTPUT_QUANTITIES: Final = frozenset({"speed"})
+# Analysis axes a condition can use: "time > 0.5" (transient), "frequency < 100" (AC sweep).
+_AXES: Final = {"time": "time", "frequency": "frequency", "freq": "frequency"}
 
 _SIGNAL_RE: Final = re.compile(r"^\s*([A-Za-z]+)\s*\(\s*([A-Za-z0-9_]+)\s*\)\s*$")
 _BARE_NET_RE: Final = re.compile(r"^\s*([A-Za-z0-9_]+)\s*$")
-_CONDITION_RE: Final = re.compile(r"^\s*(.+?)\s*(>=|<=|>|<)\s*(.+?)\s*$")
+_CONDITION_RE: Final = re.compile(r"^\s*(.+?)\s*(>=|<=|==|=|>|<)\s*(.+?)\s*$")
 _CHECK_RE: Final = re.compile(r"^\s*(>=|<=|>|<)\s*(.+?)\s*$")
 
 
@@ -51,6 +53,8 @@ class Signal:
     quantity: str = ""  # for stimulus signals: "light", "temperature", ...
 
     def __str__(self) -> str:
+        if self.kind == "axis":
+            return self.target
         prefix = {"voltage": "V", "current": "I"}.get(self.kind, self.quantity)
         return f"{prefix}({self.target})"
 
@@ -70,6 +74,8 @@ class Comparison:
                 return sample < self.value
             case "<=":
                 return sample <= self.value
+            case "=":  # only on an axis, where the nearest sample is chosen instead
+                return sample == self.value
 
 
 def parse_signal(text: str, stimulus_quantities: frozenset[str]) -> Signal:
@@ -90,7 +96,8 @@ def parse_signal(text: str, stimulus_quantities: frozenset[str]) -> Signal:
         raise ExpectationSyntaxError(f"unknown signal '{text}'; use one of {known}, e.g. V(OUT)")
     bare = _BARE_NET_RE.match(text)
     if bare is not None:
-        return Signal("voltage", bare[1])
+        axis = _AXES.get(bare[1].lower())
+        return Signal("axis", axis) if axis is not None else Signal("voltage", bare[1])
     raise ExpectationSyntaxError(f"cannot read signal '{text}'; write it like V(OUT) or I(R1)")
 
 
@@ -113,12 +120,17 @@ def parse_check(text: str) -> Comparison:
 
 
 def parse_condition(text: str, stimulus_quantities: frozenset[str]) -> tuple[Signal, Comparison]:
-    """``light(LDR1) < 1`` -> (signal, comparison)."""
+    """``light(LDR1) < 1`` -> (signal, comparison). ``time`` and ``frequency`` also take ``=``."""
     match = _CONDITION_RE.match(text)
+    usage = (
+        f"condition '{text}' must be a signal, one of >, >=, <, <= and a value, "
+        "e.g. 'V(IN) > 1.4', 'light(LDR1) < 5', 'time > 0.5' or 'frequency = 1k' "
+        "('=' only for time and frequency)"
+    )
     if match is None:
-        raise ExpectationSyntaxError(
-            f"condition '{text}' must be a signal, one of >, >=, <, <= and a value, "
-            "e.g. 'V(IN) > 1.4' or 'light(LDR1) < 5' (no '=')"
-        )
-    comparison = Comparison(cast(Operator, match[2]), _value(match[3]))
-    return parse_signal(match[1], stimulus_quantities), comparison
+        raise ExpectationSyntaxError(usage)
+    signal = parse_signal(match[1], stimulus_quantities)
+    operator = "=" if match[2] in ("=", "==") else match[2]
+    if operator == "=" and signal.kind != "axis":
+        raise ExpectationSyntaxError(usage)
+    return signal, Comparison(cast(Operator, operator), _value(match[3]))
