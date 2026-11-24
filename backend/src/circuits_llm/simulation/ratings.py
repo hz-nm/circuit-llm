@@ -28,12 +28,13 @@ from circuits_llm.domain import (
     format_si,
 )
 
-from .library import BUZZER_VOLTS, MOTOR_MODELS
+from .library import BUZZER_VOLTS, MOTOR_MODELS, TIMER_MODELS
 from .results import OperatingPointResult, SimulationResult
 
 RESISTOR_DEFAULT_WATTS: Final = 0.25
 LAMP_OVERLOAD: Final = 1.2  # tolerated power above rating before calling it overdriven
 CMOS_INPUT_MARGIN_V: Final = 0.5  # input beyond the rails before clamp diodes conduct
+TIMER_OUTPUT_AMPS: Final[dict[str, float]] = {"NE555": 0.2, "TLC555": 0.1}
 _RESISTOR_WATT_STEPS: Final = (0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0)
 
 
@@ -215,6 +216,8 @@ def check_ratings(circuit: Circuit, result: SimulationResult) -> list[Issue]:
             findings = _check_component(component, signals)
             if component.kind is ComponentKind.ARDUINO_UNO:
                 findings = _arduino_pin_checks(circuit, component, signals)
+            elif component.kind is ComponentKind.TIMER_555:
+                findings = _timer_checks(circuit, component, signals)
             for score, finding in findings:
                 key = (component.id, finding.code)
                 if key not in worst or score > worst[key][0]:
@@ -545,25 +548,33 @@ def _current_into(component: Component, pin: str, s: _Signals) -> Sequence[float
     return current if pin == spec.pins[0].name else [-i for i in current]
 
 
+def _load_current(
+    circuit: Circuit, component: Component, net: str, s: _Signals
+) -> list[float] | None:
+    """Current a pin of ``component`` sources into everything else on ``net`` (Kirchhoff),
+    or None when some branch on the net is not measured."""
+    total = [0.0] * s.points
+    for ref in circuit.nets().get(net, []):
+        if ref.component_id == component.id:
+            continue
+        other = circuit.component(ref.component_id)
+        into = _current_into(other, ref.pin, s) if other is not None else None
+        if into is None:
+            return None
+        total = [t + i for t, i in zip(total, into, strict=False)]
+    return total
+
+
 def _arduino_pin_checks(
     circuit: Circuit, component: Component, s: _Signals
 ) -> Iterator[tuple[float, _Finding]]:
     """A programmed pin sources the current flowing into everything else on its net."""
-    nets = circuit.nets()
     for behavior in component.behavior or []:
         net = component.pins.get(behavior.pin)
         if net is None or net == GROUND_NET:
             continue
-        total = [0.0] * s.points
-        for ref in nets.get(net, []):
-            if ref.component_id == component.id:
-                continue
-            other = circuit.component(ref.component_id)
-            into = _current_into(other, ref.pin, s) if other is not None else None
-            if into is None:
-                break  # an unmeasured branch: the pin current is unknown
-            total = [t + i for t, i in zip(total, into, strict=False)]
-        else:
+        total = _load_current(circuit, component, net, s)
+        if total is not None:
             amps = _peak(total)  # the pin limit applies whenever the pin drives, not on average
             name = f"{component.id} pin {behavior.pin}"
             fix = "add a series resistor, or drive the load through a transistor (e.g. IRLZ44N)"
@@ -587,6 +598,40 @@ def _arduino_pin_checks(
                         f"{format_si(ARDUINO_PIN_RECOMMENDED_A, 'A')}: {fix}.",
                     ),
                 )
+
+
+# --------------------------------------------------------------------------- 555 timer
+
+
+def _timer_checks(
+    circuit: Circuit, component: Component, s: _Signals
+) -> Iterator[tuple[float, _Finding]]:
+    model = component.model or CATALOG[component.kind].default_model or "NE555"
+    timer = TIMER_MODELS.get(model)
+    if timer is None:
+        return
+    name = f"{component.id} ({model} 555 timer)"
+    pins = component.pins
+    yield from _supply_checks(
+        name, (timer.min_v, timer.max_v), s.v(pins["vcc"]), s.v(pins["gnd"]), s
+    )
+    net = pins.get("out")
+    load = _load_current(circuit, component, net, s) if net and net != GROUND_NET else None
+    limit = TIMER_OUTPUT_AMPS.get(model)
+    if load is None or limit is None:
+        return
+    amps = _peak(load)
+    if amps > limit:
+        yield (
+            amps / limit,
+            _Finding(
+                Severity.ERROR,
+                "timer_output_overcurrent",
+                f"{name} output supplies {format_si(amps, 'A')} {s.where(load)}, above its "
+                f"{format_si(limit, 'A')} limit. Add a series resistor, or switch the load with a "
+                "MOSFET driven from 'out'.",
+            ),
+        )
 
 
 # --------------------------------------------------------------------------- actuators

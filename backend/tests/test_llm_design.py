@@ -170,7 +170,8 @@ def test_unusable_plan_falls_back_to_every_family() -> None:
 
 
 def test_unprogrammed_arduino_gets_a_focused_follow_up() -> None:
-    answer = json.loads(json.dumps(FEW_SHOT_EXAMPLES[-1][1]))  # the Arduino night light
+    night_light = next(a for r, a, _ in FEW_SHOT_EXAMPLES if "Arduino" in r)
+    answer = json.loads(json.dumps(night_light))
     arduino = answer["circuit"]["components"][0]
     assert arduino["kind"] == "arduino_uno"
     del arduino["behavior"]  # what weak models do
@@ -185,6 +186,20 @@ def test_unprogrammed_arduino_gets_a_focused_follow_up() -> None:
     assert [type(e) for e in events].count(AttemptStarted) == 1  # no repair round needed
     question = provider.calls[1][-1].content
     assert "D9 -> net PIN9" in question and "A0 -> net SENSE" in question
+
+
+def test_repair_round_echoes_the_focused_fix() -> None:
+    night_light = next(a for r, a, _ in FEW_SHOT_EXAMPLES if "Arduino" in r)
+    answer = json.loads(json.dumps(night_light))
+    del answer["circuit"]["components"][0]["behavior"]
+    bad_fill = '{"behavior": [{"pin": "D9", "output": "rule", "when": "A9 > 2.5"}]}'
+    provider = FakeProvider([json.dumps(answer), bad_fill, json.dumps(night_light)])
+
+    events = _run({"a": provider}, DesignRequest(user_message="Arduino night light"))
+
+    assert isinstance(events[-1], DesignCompleted)
+    echo = provider.calls[2][-2]
+    assert echo.role == "assistant" and '"behavior"' in echo.content
 
 
 @pytest.mark.skipif(locate_ngspice() is None, reason="ngspice not found")

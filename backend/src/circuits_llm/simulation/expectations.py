@@ -151,7 +151,7 @@ def _static_source_driving(circuit: Circuit, net: str) -> str | None:
     sources = [
         c.id
         for c in circuit.components
-        if c.kind is ComponentKind.VOLTAGE_SOURCE
+        if c.kind in (ComponentKind.VOLTAGE_SOURCE, ComponentKind.FUNCTION_GENERATOR)
         and c.waveform is None
         and c.pins.get("+", "").lower() == net.lower()
     ]

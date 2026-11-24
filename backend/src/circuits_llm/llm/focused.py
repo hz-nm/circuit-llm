@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 MAX_ARDUINOS_FILLED: Final = 2
 MAX_SENSORS_FIXED: Final = 2
 MAX_INTENT_CHARS: Final = 1_500
+_SIGNAL_SOURCES: Final = frozenset({ComponentKind.VOLTAGE_SOURCE, ComponentKind.FUNCTION_GENERATOR})
 BEHAVIOR_KEYS: Final = ("behavior", "behaviour", "behaviors", "behaviours", "program")
 
 _SYSTEM: Final = (
@@ -89,8 +90,10 @@ def _question(arduino: Json, components: Sequence[Json], intent: str) -> str:
             f"What the design should do: {intent[:MAX_INTENT_CHARS]}",
             "",
             'Write the pin behaviours: one entry for every connected D pin. "output" is high, '
-            'low, blink ("period" in seconds), pwm ("duty" 0..1) or rule (high while "when" '
-            'holds; "when" compares an analog pin A0-A5 with volts, e.g. "A0 < 2.3").',
+            'low, blink ("period" in seconds), pwm ("duty" 0..1), follow (PWM that follows '
+            'an analog pin, "input": "A0"; PWM pins only: D3, D5, D6, D9, D10, D11) or rule '
+            '(high while "when" holds; "when" compares an analog pin A0-A5 with volts, e.g. '
+            '"A0 < 2.3"; optional "hold" keeps it on that many seconds afterwards).',
             'Answer exactly like: {"behavior": [{"pin": "D9", "output": "rule", "when": '
             '"A0 < 2.3"}]}',
         ]
@@ -178,7 +181,7 @@ async def fix_unreached_stimuli(
         if CATALOG[component.kind].stimulus is not None:
             field = "stimulus"
             question = _stimulus_question(component.id, component.kind, component_reasons, stop)
-        elif component.kind is ComponentKind.VOLTAGE_SOURCE:
+        elif component.kind in _SIGNAL_SOURCES:
             field = "waveform"
             question = _source_question(
                 component.id, component.pins.get("+", "?"), component_reasons, stop

@@ -110,15 +110,19 @@ class PinBehavior(StrictModel):
 
     ``high``/``low``: constant. ``blink``: on/off with ``period`` seconds and ``duty``
     (fraction on, default 0.5). ``pwm``: ``duty`` 0..1 at ``frequency`` Hz (default 490).
-    ``rule``: high while ``when`` holds, e.g. ``"A0 < 2.5"``.
+    ``rule``: high while ``when`` holds, e.g. ``"A0 < 2.5"``, and for ``hold`` seconds
+    after it stops holding. ``follow``: PWM whose duty follows analog ``input`` (0-5 V
+    gives 0-100%), e.g. a knob setting LED brightness or motor speed.
     """
 
     pin: Annotated[str, Field(min_length=2, max_length=4)]
-    output: Literal["high", "low", "blink", "pwm", "rule"]
+    output: Literal["high", "low", "blink", "pwm", "rule", "follow"]
     period: PositiveFloat | None = None
     duty: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] | None = None
     frequency: PositiveFloat | None = None
     when: Annotated[str, Field(min_length=3, max_length=48)] | None = None
+    input: Annotated[str, Field(min_length=2, max_length=4)] | None = None
+    hold: Annotated[float, Field(gt=0, le=3600, allow_inf_nan=False)] | None = None
 
 
 class Component(StrictModel):

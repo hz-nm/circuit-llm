@@ -45,6 +45,8 @@ class ComponentKind(StrEnum):
     SWITCH = "switch"
     BUZZER = "buzzer"
     DC_MOTOR = "dc_motor"
+    FUNCTION_GENERATOR = "function_generator"
+    TIMER_555 = "timer_555"
 
 
 class Category(StrEnum):
@@ -67,14 +69,19 @@ class Family(StrEnum):
     SENSORS = "sensors"
     MICROCONTROLLERS = "microcontrollers"
     ACTUATORS = "actuators"
+    TIMERS = "timers"
 
 
 FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
-    Family.CORE: "resistors, capacitors, inductors, sources, diodes, LEDs, zeners, lamps",
+    Family.CORE: (
+        "resistors, capacitors, inductors, sources, function generators (sine, square/PWM, "
+        "triangle, sawtooth), diodes, LEDs, zeners, lamps"
+    ),
     Family.TRANSISTORS: "BJTs and MOSFETs for switching loads or amplifying",
     Family.AMPLIFIERS: "op-amps for amplifiers, filters, comparators and references",
     Family.LOGIC: "logic gates (NOT/AND/OR/NAND/NOR/XOR) and Schmitt-trigger inverters",
     Family.ACTUATORS: "DC motors (with speed in rpm) and buzzers",
+    Family.TIMERS: "555 timer IC for oscillators (blinkers, tones, PWM) and one-shot delays",
     Family.SENSORS: (
         "switches and push buttons, and sensors driven by a simulated environment: light "
         "(LDR, photodiode, phototransistor), temperature (NTC thermistor), gas (MQ-2/MQ-135), "
@@ -82,7 +89,8 @@ FAMILY_DESCRIPTIONS: Final[dict[Family, str]] = {
     ),
     Family.MICROCONTROLLERS: (
         "Arduino Uno whose pins are programmed with simple behaviours: on/off, blink, PWM, "
-        "or 'high when an analog input crosses a threshold'"
+        "PWM that follows an analog input (e.g. a knob), or 'high when an analog input "
+        "crosses a threshold' (optionally staying on for a while afterwards)"
     ),
 }
 
@@ -260,8 +268,6 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
             "ac_voltage_source",
             "power_supply",
             "supply",
-            "signal_source",
-            "function_generator",
             "sine_source",
             "pulse_source",
         ),
@@ -283,6 +289,35 @@ _SPECS: Final[tuple[ComponentSpec, ...]] = (
         value_unit="A",
         value_description="DC current in amperes, e.g. '1m'",
         kind_aliases=("isource", "i", "current", "dc_current_source"),
+    ),
+    ComponentSpec(
+        kind=ComponentKind.FUNCTION_GENERATOR,
+        display_name="Function generator",
+        category=Category.SOURCE,
+        designator_prefix="FG",
+        description=(
+            "Bench function generator with a 50 ohm output. Give 'waveform': a sine "
+            '{"shape": "sine", "amplitude": 1, "frequency": "1k"}, a square or PWM signal '
+            '{"shape": "square", "low": 0, "high": 5, "frequency": "1k", "duty": 0.25}, or '
+            '"triangle" / "sawtooth" with "low", "high" and "frequency". Use it for test '
+            "and control signals; power circuits from a voltage_source."
+        ),
+        pins=(
+            PinSpec("+", "signal output", aliases=("out", "output", "signal", "sig", "pos", "1")),
+            PinSpec("-", "common", aliases=("com", "common", "neg", "gnd", "ground", "2")),
+        ),
+        kind_aliases=(
+            "signal_generator",
+            "signal_source",
+            "func_gen",
+            "fgen",
+            "waveform_generator",
+            "pwm_generator",
+            "pwm_source",
+            "square_wave_generator",
+            "triangle_wave_generator",
+        ),
+        dc_paths=(("+", "-"),),
     ),
     ComponentSpec(
         kind=ComponentKind.DIODE,
@@ -694,7 +729,8 @@ _ARDUINO_SPEC: Final = ComponentSpec(
         "Arduino Uno (5 V logic, powered over USB). Connect only the pins you use, and "
         "always 'GND'. '5V' and '3V3' can power small circuits. Digital pins D2-D13 are "
         "outputs programmed by 'behavior' (PWM only on D3, D5, D6, D9, D10, D11); analog "
-        "pins A0-A5 are inputs read by 'rule' behaviours. Every connected D pin MUST have an "
+        "pins A0-A5 are inputs read by 'rule' and 'follow' behaviours. Every connected D pin "
+        "MUST have an "
         "entry in 'behavior' (that is how the Arduino is programmed; never write code). "
         "A pin can source at most about "
         "20 mA: drive LEDs through a resistor and larger loads through a transistor."
@@ -813,9 +849,62 @@ _ACTUATOR_SPECS: Final[tuple[ComponentSpec, ...]] = (
     ),
 )
 
+_TIMER_SPEC: Final = ComponentSpec(
+    kind=ComponentKind.TIMER_555,
+    display_name="555 timer",
+    category=Category.INTEGRATED,
+    family=Family.TIMERS,
+    designator_prefix="U",
+    description=(
+        "555 timer IC. 'out' goes high when 'trig' falls below 1/3 of 'vcc', and low when "
+        "'thr' rises above 2/3 of 'vcc' (then 'dis' is shorted to 'gnd' until the next "
+        "trigger). 'reset' below 0.7 V forces 'out' low: tie it to 'vcc' or leave it "
+        "unconnected. 'ctrl' is optional (a 10n capacitor to GND). NE555 runs from 4.5-16 V "
+        "and its high output is about 1.5 V below vcc; TLC555 (CMOS) runs from 2-15 V and "
+        "swings rail to rail. 'out' can drive an LED through a resistor, a buzzer or a "
+        "MOSFET gate (up to about 100 mA)."
+    ),
+    pins=(
+        PinSpec("vcc", "supply (pin 8)", aliases=("v+", "vdd", "vs", "+", "8")),
+        PinSpec("gnd", "ground (pin 1)", aliases=("ground", "0v", "v-", "vss", "-", "1")),
+        PinSpec("trig", "trigger input (pin 2)", aliases=("trigger", "tr", "trg", "2")),
+        PinSpec("thr", "threshold input (pin 6)", aliases=("threshold", "th", "thres", "6")),
+        PinSpec("dis", "discharge (pin 7)", aliases=("discharge", "disch", "7"), optional=True),
+        PinSpec("out", "output (pin 3)", aliases=("output", "q", "o", "3")),
+        PinSpec("reset", "reset, active low (pin 4)", aliases=("rst", "res", "4"), optional=True),
+        PinSpec(
+            "ctrl",
+            "control voltage (pin 5)",
+            aliases=("control", "cv", "control_voltage", "con", "5"),
+            optional=True,
+        ),
+    ),
+    models=("NE555", "TLC555"),
+    kind_aliases=(
+        "555",
+        "ne555",
+        "lm555",
+        "tlc555",
+        "555_timer",
+        "timer",
+        "timer_ic",
+        "ic555",
+        "na555",
+    ),
+    dc_paths=(("vcc", "gnd"), ("dis", "gnd"), ("ctrl", "gnd"), ("reset", "vcc")),
+    driven_pins=("out",),
+)
+
 CATALOG: Final[dict[ComponentKind, ComponentSpec]] = {
     spec.kind: spec
-    for spec in (*_SPECS, *_LOGIC_SPECS, *_SENSOR_SPECS, _ARDUINO_SPEC, *_ACTUATOR_SPECS)
+    for spec in (
+        *_SPECS,
+        *_LOGIC_SPECS,
+        *_SENSOR_SPECS,
+        _ARDUINO_SPEC,
+        *_ACTUATOR_SPECS,
+        _TIMER_SPEC,
+    )
 }
 
 _KIND_LOOKUP: Final[dict[str, ComponentKind]] = {

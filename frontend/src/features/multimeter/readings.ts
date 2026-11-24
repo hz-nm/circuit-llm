@@ -3,7 +3,7 @@
  * component currents at the cursor. Pure, so the card is easy to reason about.
  */
 import type { Component } from "../../api/types";
-import { STIMULUS, type StimulusSpec } from "../schematic/stimulus";
+import { stimulusSpec, type StimulusSpec } from "../schematic/stimulus";
 import { SYMBOLS } from "../schematic/symbols";
 
 export interface Reading {
@@ -57,7 +57,7 @@ export const BUZZER_SOUNDING_A = 0.015;
 export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf, stim?: StimulusOf, out?: StimulusOf): Reading[] {
   const symbol = SYMBOLS[component.kind];
   // Environment the sensor sees: the recorded stimulus at the cursor, else a constant stimulus.
-  const spec = STIMULUS[component.kind];
+  const spec = stimulusSpec(component);
   const constant = typeof component.stimulus === "number" ? component.stimulus : null;
   const envRow: Reading[] = spec
     ? [{ label: spec.quantity, value: stim?.(component.id) ?? constant, unit: "env", env: spec, hint: `Simulated ${spec.quantity}${spec.unit ? ` (${spec.unit})` : ""}`, emphasis: true }]
@@ -76,7 +76,7 @@ export function meterReadings(component: Component, v: VoltageOf, i: CurrentOf, 
     const across = diff(at(p1), at(p2));
     const current = i(component.id) ?? null;
     const power = across !== null && current !== null ? across * current : null;
-    const source = component.kind === "voltage_source" || component.kind === "current_source";
+    const source = component.kind === "voltage_source" || component.kind === "current_source" || component.kind === "function_generator";
     const extra: Reading[] = [];
     if (component.kind === "buzzer") {
       const on = current !== null && Math.abs(current) > BUZZER_SOUNDING_A;

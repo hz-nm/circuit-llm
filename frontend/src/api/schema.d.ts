@@ -385,7 +385,7 @@ export interface components {
          * ComponentKind
          * @enum {string}
          */
-        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "ldr" | "thermistor" | "photodiode" | "phototransistor" | "gas_sensor" | "pir" | "potentiometer" | "arduino_uno" | "switch" | "buzzer" | "dc_motor";
+        ComponentKind: "resistor" | "capacitor" | "inductor" | "voltage_source" | "current_source" | "diode" | "led" | "zener" | "npn" | "pnp" | "nmos" | "pmos" | "opamp" | "lamp" | "not_gate" | "and_gate" | "or_gate" | "nand_gate" | "nor_gate" | "xor_gate" | "schmitt_inverter" | "ldr" | "thermistor" | "photodiode" | "phototransistor" | "gas_sensor" | "pir" | "potentiometer" | "arduino_uno" | "switch" | "buzzer" | "dc_motor" | "function_generator" | "timer_555";
         /** ComponentSpecOut */
         ComponentSpecOut: {
             kind: components["schemas"]["ComponentKind"];
@@ -665,7 +665,9 @@ export interface components {
          *
          *     ``high``/``low``: constant. ``blink``: on/off with ``period`` seconds and ``duty``
          *     (fraction on, default 0.5). ``pwm``: ``duty`` 0..1 at ``frequency`` Hz (default 490).
-         *     ``rule``: high while ``when`` holds, e.g. ``"A0 < 2.5"``.
+         *     ``rule``: high while ``when`` holds, e.g. ``"A0 < 2.5"``, and for ``hold`` seconds
+         *     after it stops holding. ``follow``: PWM whose duty follows analog ``input`` (0-5 V
+         *     gives 0-100%), e.g. a knob setting LED brightness or motor speed.
          */
         PinBehavior: {
             /** Pin */
@@ -674,7 +676,7 @@ export interface components {
              * Output
              * @enum {string}
              */
-            output: "high" | "low" | "blink" | "pwm" | "rule";
+            output: "high" | "low" | "blink" | "pwm" | "rule" | "follow";
             /** Period */
             period?: number | null;
             /** Duty */
@@ -683,6 +685,10 @@ export interface components {
             frequency?: number | null;
             /** When */
             when?: string | null;
+            /** Input */
+            input?: string | null;
+            /** Hold */
+            hold?: number | null;
         };
         /** PinOut */
         PinOut: {

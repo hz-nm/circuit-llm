@@ -17,7 +17,12 @@ from dataclasses import dataclass
 from typing import Final
 
 from circuits_llm.domain import CATALOG, Component, ComponentKind, PinBehavior
-from circuits_llm.domain.arduino import ARDUINO_LOGIC_V, DEFAULT_PWM_HZ, rule_condition
+from circuits_llm.domain.arduino import (
+    ARDUINO_LOGIC_V,
+    DEFAULT_PWM_HZ,
+    follow_input,
+    rule_condition,
+)
 
 # --------------------------------------------------------------------------- discrete models
 
@@ -584,6 +589,78 @@ def buzzer_subckt(model: str) -> tuple[str, str]:
     )
 
 
+# --------------------------------------------------------------------------- 555 timer
+#
+# Behavioural 555: a resistor ladder sets the 1/3 and 2/3 references (ctrl is the upper
+# one), soft comparators feed a regenerative SR latch with a 100 ns delay, and the
+# sharpened latch state drives the output stage and the discharge switch. Sharpening
+# matters: with a soft state the discharge would settle into a continuous equilibrium
+# instead of oscillating. At the operating point (time = 0) the latch is held reset,
+# like a power-up with discharged timing capacitors, so an astable starts oscillating.
+
+
+@dataclass(frozen=True, slots=True)
+class TimerSpec:
+    min_v: float
+    max_v: float
+    high_drop_v: float  # output high level below vcc
+    output_ohms: float
+    quiescent_ohms: float  # supply current = vcc / quiescent_ohms
+
+
+TIMER_MODELS: Final[dict[str, TimerSpec]] = {
+    "NE555": TimerSpec(4.5, 16.0, 1.5, 10.0, 1.5e3),  # ~3 mA at 5 V, ~10 mA at 15 V
+    "TLC555": TimerSpec(2.0, 15.0, 0.0, 30.0, 30e3),  # CMOS: ~170 uA at 5 V
+}
+TIMER_RESET_V: Final = 0.7
+_TIMER_LADDER_OHMS: Final = 5e3
+_TIMER_DISCHARGE_OHMS: Final = 10.0  # saturated discharge transistor
+_TIMER_DISCHARGE_AMPS: Final = 0.2  # ... and its current limit
+_TIMER_COMPARATOR_WIDTH_V: Final = 0.005
+
+
+def timer_subckt_name(model: str) -> str:
+    return f"T555_{model.upper()}"
+
+
+def timer_subckt(model: str) -> str:
+    """Ports are the catalog pins in order: vcc gnd trig thr dis out reset ctrl."""
+    t = TIMER_MODELS[model]
+    w = _TIMER_COMPARATOR_WIDTH_V
+
+    def soft(expression: str, width: float) -> str:
+        return f"0.5*(1+tanh(({expression})/{width:g}))"
+
+    latch = (
+        f"time<=0 ? 0 : {soft(f'V(reset,gnd)-{TIMER_RESET_V:g}', 0.05)}"
+        f"*{soft('V(s,gnd)+(1-V(s,gnd))*(1-V(r,gnd))*V(q,gnd)-0.5', 0.02)}"
+    )
+    return "\n".join(
+        [
+            f".subckt {timer_subckt_name(model)} vcc gnd trig thr dis out reset ctrl",
+            f"Rsup vcc gnd {t.quiescent_ohms:g}",
+            f"Rla vcc ctrl {_TIMER_LADDER_OHMS:g}",
+            f"Rlb ctrl lo {_TIMER_LADDER_OHMS:g}",
+            f"Rlc lo gnd {_TIMER_LADDER_OHMS:g}",
+            "Rpull reset vcc 1Meg",  # an unconnected reset reads high
+            "Rleak dis gnd 100Meg",
+            "Rthr thr gnd 1e10",
+            "Rtrig trig gnd 1e10",
+            f"Bset s gnd V={soft('V(lo,gnd)-V(trig,gnd)', w)}",
+            f"Brst r gnd V={soft('V(thr,gnd)-V(ctrl,gnd)', w)}",
+            f"Blatch l gnd V={latch}",
+            "Rdelay l q 1k",
+            "Cdelay q gnd 100p",
+            f"Bstate qs gnd V={soft('V(q,gnd)-0.5', 0.01)}",
+            f"Bout o gnd V=V(qs,gnd)*max(V(vcc,gnd)-{t.high_drop_v:g},0)",
+            f"Rout o out {t.output_ohms:g}",
+            f"Bdis dis gnd I=(1-V(qs,gnd))*{_TIMER_DISCHARGE_AMPS:g}"
+            f"*tanh(V(dis,gnd)/{_TIMER_DISCHARGE_AMPS * _TIMER_DISCHARGE_OHMS:g})",
+            ".ends",
+        ]
+    )
+
+
 # --------------------------------------------------------------------------- arduino
 #
 # Each Arduino is its own subcircuit (its pins are programmed per instance). Ports are
@@ -593,20 +670,83 @@ def buzzer_subckt(model: str) -> tuple[str, str]:
 ARDUINO_PIN_OHMS: Final = 25.0
 _ARDUINO_EDGE_S: Final = 100e-9
 _RULE_WIDTH_V: Final = 0.01  # tanh width of a 'rule' threshold
+_FOLLOW_WIDTH: Final = 0.002  # tanh width of the PWM comparator, as a duty fraction
+_SMOOTH_R: Final = 1e3  # RC (1 us) on computed drives, so the solver resolves their edges
+_SMOOTH_C: Final = 1e-9
+# 'hold' timer: a capacitor charged in ~100 us while the rule holds, then discharged at
+# a constant 1 V per hold time; the pin stays high until it falls below _HOLD_OFFSET.
+# Its currents are scaled to the small capacitance so the node stays well conditioned.
+_HOLD_OFFSET: Final = 0.02
+_HOLD_CHARGE_RATE: Final = 1e4  # 1/s
+_HOLD_FARADS: Final = 1e-6
 
 
 def arduino_node(pin: str) -> str:
     return "p_" + pin.lower()
 
 
-def _pin_drive(behavior: PinBehavior, target: str, gnd: str, nodes: dict[str, str]) -> str:
-    """One element setting internal node ``target`` to the pin's 0/5 V drive."""
+def _reading(pin: str, gnd: str, nodes: dict[str, str]) -> str:
+    if pin not in nodes:
+        raise ValueError(f"input {pin} is not connected")
+    return f"V({nodes[pin]},{gnd})"
+
+
+def _smoothed(name: str, expression: str, target: str, gnd: str) -> list[str]:
+    """``target`` follows ``expression`` through a 1 us RC and a buffer."""
+    raw, smooth = f"r_{name.lower()}", f"s_{name.lower()}"
+    return [
+        f"Bcalc_{name} {raw} {gnd} V={expression}",
+        f"Rsm_{name} {raw} {smooth} {_SMOOTH_R:g}",
+        f"Csm_{name} {smooth} {gnd} {_SMOOTH_C:g}",
+        f"Bdrv_{name} {target} {gnd} V=V({smooth},{gnd})",
+    ]
+
+
+def _follow_drive(behavior: PinBehavior, target: str, gnd: str, nodes: dict[str, str]) -> list[str]:
+    """PWM whose duty is the input voltage / 5 V: a comparator against a sawtooth.
+
+    At the operating point (time = 0) the pin gives the average voltage instead, so
+    DC sweeps and steady-state readings show a sensible level rather than one edge.
+    """
+    name = behavior.pin
+    period = 1.0 / (behavior.frequency or DEFAULT_PWM_HZ)
+    duty = f"min(max({_reading(follow_input(behavior), gnd, nodes)}/{ARDUINO_LOGIC_V:g},0),1)"
+    saw = f"saw_{name.lower()}"
+    edge = _ARDUINO_EDGE_S
+    pwm = f"{ARDUINO_LOGIC_V:g}*0.5*(1+tanh(({duty}-V({saw},{gnd}))/{_FOLLOW_WIDTH:g}))"
+    return [
+        f"Vsaw_{name} {saw} {gnd} DC 0 PULSE(0 1 0 {period - 2 * edge:g} {edge:g} {edge:g} "
+        f"{period:g})",
+        *_smoothed(name, f"time<=0 ? {ARDUINO_LOGIC_V:g}*{duty} : {pwm}", target, gnd),
+    ]
+
+
+def _hold_drive(
+    behavior: PinBehavior, condition: str, target: str, gnd: str, hold: float
+) -> list[str]:
+    """High while ``condition`` (0..1) holds and for ``hold`` seconds afterwards."""
+    name = behavior.pin
+    timer = f"h_{name.lower()}"
+    level = f"V({timer},{gnd})"
+    charge = f"{_HOLD_CHARGE_RATE:g}*{condition}*({1 + _HOLD_OFFSET:g}-{level})"
+    discharge = f"(1-{condition})*min(1,max({level},0)*1000)/{hold:g}"
+    high = ARDUINO_LOGIC_V
+    return [
+        f"Bhold_{name} {gnd} {timer} I={_HOLD_FARADS:g}*({charge}-{discharge})",
+        f"Chold_{name} {timer} {gnd} {_HOLD_FARADS:g}",
+        f"Rhold_{name} {timer} {gnd} 1e12",
+        f"Bdrv_{name} {target} {gnd} V={high:g}*0.5*(1+tanh(({level}-{_HOLD_OFFSET:g})/0.002))",
+    ]
+
+
+def _pin_drive(behavior: PinBehavior, target: str, gnd: str, nodes: dict[str, str]) -> list[str]:
+    """Elements setting internal node ``target`` to the pin's 0/5 V drive."""
     high = ARDUINO_LOGIC_V
     name = behavior.pin
     match behavior.output:
         case "high" | "low":
             level = high if behavior.output == "high" else 0.0
-            return f"Vdrv_{name} {target} {gnd} DC {level:g}"
+            return [f"Vdrv_{name} {target} {gnd} DC {level:g}"]
         case "blink" | "pwm":
             if behavior.output == "blink":
                 period = behavior.period or 1.0
@@ -614,23 +754,26 @@ def _pin_drive(behavior: PinBehavior, target: str, gnd: str, nodes: dict[str, st
                 period = 1.0 / (behavior.frequency or DEFAULT_PWM_HZ)
             duty = behavior.duty if behavior.duty is not None else 0.5
             if duty <= 1e-3 or duty >= 1 - 1e-3:
-                return f"Vdrv_{name} {target} {gnd} DC {high if duty > 0.5 else 0:g}"
+                return [f"Vdrv_{name} {target} {gnd} DC {high if duty > 0.5 else 0:g}"]
             width = max(duty * period - _ARDUINO_EDGE_S, _ARDUINO_EDGE_S)
             pulse = (
                 f"PULSE(0 {high:g} 0 {_ARDUINO_EDGE_S:g} {_ARDUINO_EDGE_S:g} {width:g} {period:g})"
             )
-            return f"Vdrv_{name} {target} {gnd} DC 0 {pulse}"
+            return [f"Vdrv_{name} {target} {gnd} DC 0 {pulse}"]
+        case "follow":
+            return _follow_drive(behavior, target, gnd, nodes)
         case "rule":
             signal, operator, threshold = rule_condition(behavior)
-            if signal.target not in nodes:
-                raise ValueError(f"rule input {signal.target} is not connected")
-            reading = f"V({nodes[signal.target]},{gnd})"
+            reading = _reading(signal.target, gnd, nodes)
             margin = (
                 f"({reading}-{threshold:g})"
                 if operator in (">", ">=")
                 else f"({threshold:g}-{reading})"
             )
-            return f"Bdrv_{name} {target} {gnd} V={high:g}*0.5*(1+tanh({margin}/{_RULE_WIDTH_V:g}))"
+            condition = f"0.5*(1+tanh({margin}/{_RULE_WIDTH_V:g}))"
+            if behavior.hold is not None:
+                return _hold_drive(behavior, condition, target, gnd, behavior.hold)
+            return [f"Bdrv_{name} {target} {gnd} V={high:g}*{condition}"]
 
 
 def arduino_subckt(component: Component) -> tuple[str, str]:
@@ -656,7 +799,7 @@ def arduino_subckt(component: Component) -> tuple[str, str]:
                 lines.append(f"Rin_{pin} {node} {gnd} 10Meg")
                 continue
             inner = "i_" + pin.lower()
-            lines.append(_pin_drive(behavior, inner, gnd, nodes))
+            lines += _pin_drive(behavior, inner, gnd, nodes)
             lines.append(f"Rout_{pin} {inner} {node} {ARDUINO_PIN_OHMS:g}")
     lines.append(".ends")
     return name, "\n".join(lines)

@@ -64,6 +64,12 @@ _FAMILY_ALIASES: Final[dict[str, Family]] = {
     "buttons": Family.SENSORS,
     "switch": Family.SENSORS,
     "switches": Family.SENSORS,
+    "555": Family.TIMERS,
+    "ne555": Family.TIMERS,
+    "timer": Family.TIMERS,
+    "timer_555": Family.TIMERS,
+    "555_timer": Family.TIMERS,
+    "timing": Family.TIMERS,
 }
 
 

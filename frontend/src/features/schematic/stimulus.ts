@@ -6,14 +6,27 @@ import type { Component } from "../../api/types";
 import type { SymbolKind } from "./symbols";
 
 export interface StimulusSpec {
-  quantity: "light" | "temperature" | "gas" | "motion" | "position" | "pressed" | "load";
+  /** "switched" is a latching switch (toggle, reed, limit): the backend calls it "pressed" too. */
+  quantity: "light" | "temperature" | "gas" | "motion" | "position" | "pressed" | "switched" | "load";
   /** Unit as written in the circuit and in `stimulus_of` traces ("" for 0/1 and 0..1 quantities). */
   unit: string;
   icon: string;
 }
 
 /** Binary stimuli get a button instead of a slider. */
-export const isBinary = (spec: StimulusSpec) => spec.quantity === "pressed" || spec.quantity === "motion";
+export const isBinary = (spec: StimulusSpec) => spec.quantity === "pressed" || spec.quantity === "switched" || spec.quantity === "motion";
+
+/** Push buttons are momentary; toggle, reed and limit switches stay where they are put. */
+export const isMomentary = (component: Component) =>
+  component.kind === "switch" && (component.model ?? "push_button").toLowerCase().startsWith("push_button");
+
+const SWITCHED: StimulusSpec = { quantity: "switched", unit: "", icon: "⏻" };
+
+/** The stimulus a component responds to, if any (latching switches read on/off). */
+export function stimulusSpec(component: Component): StimulusSpec | undefined {
+  if (component.kind === "switch" && !isMomentary(component)) return SWITCHED;
+  return STIMULUS[component.kind];
+}
 
 export const STIMULUS: Partial<Record<SymbolKind, StimulusSpec>> = {
   switch: { quantity: "pressed", unit: "", icon: "⏻" },
@@ -33,12 +46,13 @@ const withUnit = (v: number, unit: string) => (unit ? `${num(v)} ${unit}` : num(
 
 /** Label text for a component's stimulus, e.g. "light 500 lux" or "light pwl 1000 → 0.5 lux". */
 export function stimulusText(component: Component): string | null {
-  const spec = STIMULUS[component.kind];
+  const spec = stimulusSpec(component);
   const stimulus = component.stimulus;
   if (!spec || stimulus === undefined || stimulus === null) return null;
   const unit = spec.unit ? ` ${spec.unit}` : "";
   if (typeof stimulus === "number") {
     if (spec.quantity === "pressed") return stimulus >= 0.5 ? "pressed" : "released";
+    if (spec.quantity === "switched") return stimulus >= 0.5 ? "on" : "off";
     if (spec.quantity === "load") return `load ${num(stimulus * 100)}%`;
     return `${spec.quantity} ${withUnit(stimulus, spec.unit)}`;
   }
@@ -82,6 +96,8 @@ export function formatStimulus(value: number, spec: StimulusSpec): string {
       return value.toFixed(2).padStart(5, FIGURE_SPACE);
     case "pressed":
       return value >= 0.5 ? "pressed " : "released";
+    case "switched":
+      return value >= 0.5 ? "on " : "off";
     case "load":
       return `${(value * 100).toFixed(0).padStart(3, FIGURE_SPACE)} %`;
     case "motion":

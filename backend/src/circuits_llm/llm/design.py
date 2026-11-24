@@ -151,7 +151,8 @@ async def _run_endpoint(
         if unreached and parsed.circuit is not None:
             fixed = await fix_unreached_stimuli(text, unreached, parsed.circuit, provider)
             if fixed is not None:
-                parsed, problems, warnings, issues = await _validate(fixed, extra_checks)
+                text = fixed
+                parsed, problems, warnings, issues = await _validate(text, extra_checks)
         if not problems:
             logger.info("endpoint %s produced a valid answer on attempt %d", endpoint.id, attempt)
             yield DesignCompleted(
@@ -166,7 +167,8 @@ async def _run_endpoint(
         logger.info("endpoint %s attempt %d: %d problem(s)", endpoint.id, attempt, len(problems))
         if attempt < MAX_ATTEMPTS_PER_ENDPOINT:
             yield ValidationFailed(endpoint_id=endpoint.id, attempt=attempt, problems=problems)
-            messages = build_repair_messages(base, completion.text, problems)
+            # Echo the answer as validated, with any focused fixes, so the model keeps them.
+            messages = build_repair_messages(base, text, problems)
 
     shown = "; ".join(problems[:MAX_PROBLEMS_IN_ERROR])
     more = (

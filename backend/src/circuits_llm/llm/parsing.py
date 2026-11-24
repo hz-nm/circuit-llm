@@ -290,6 +290,23 @@ def _pick(data: Json, *keys: str) -> object:
     return None
 
 
+def _generator_settings(data: Json, waveform: object) -> object:
+    """A function generator's settings may sit on the component itself, e.g.
+    ``{"kind": "function_generator", "shape": "square", "frequency": "1k"}``, and
+    ``waveform`` may be just the shape's name."""
+    if isinstance(waveform, dict | list) or (
+        isinstance(waveform, str) and _SPICE_WAVE_RE.search(waveform)
+    ):
+        return cast(object, waveform)
+    named = _pick(data, "shape", "wave_shape", "function")
+    shape = waveform if isinstance(waveform, str) else named
+    if shape is None and _pick(data, "frequency", "freq", "period") is None:
+        return waveform
+    settings = {k: v for k, v in data.items() if k not in _COMPONENT_KEYS}
+    settings["shape"] = shape or "sine"
+    return settings
+
+
 def _text(value: object, limit: int) -> str:
     return "" if value is None else str(value).strip()[:limit]
 
@@ -406,7 +423,13 @@ _BEHAVIOR_OUTPUTS: Final[dict[str, str]] = {
     **{word: "blink" for word in ("blink", "toggle", "flash", "square", "clock", "oscillate")},
     **{word: "pwm" for word in ("pwm", "analog_write", "analogwrite", "dim", "dimmer")},
     **{word: "rule" for word in ("rule", "if", "threshold", "when", "condition", "compare")},
+    **{
+        word: "follow"
+        for word in ("follow", "track", "map", "analog_follow", "pwm_follow", "follow_input")
+    },
 }
+_HOLD_KEYS: Final = ("hold", "hold_time", "stay_on", "on_time_after", "off_delay", "timeout")
+_INPUT_KEYS: Final = ("input", "source", "from", "follows", "analog_input", "read")
 _STIMULUS_KEYS: Final = (
     "light",
     "lux",
@@ -426,6 +449,30 @@ _RAMP_SHAPES: Final = frozenset({"ramp", "linear_ramp", "slope"})
 _SINE_SHAPES: Final = frozenset({"sine", "sin", "sinusoidal", "sinusoid", "ac", "sinewave"})
 _PULSE_SHAPES: Final = frozenset(
     {"pulse", "square", "clock", "squarewave", "pwm", "rectangular", "rect", "pulse_train"}
+)
+_TRIANGLE_SHAPES: Final = frozenset({"triangle", "tri", "triangular", "trianglewave"})
+_SAWTOOTH_SHAPES: Final = frozenset({"sawtooth", "saw", "sawtoothwave", "ramp_wave"})
+# Keys of a component that are not function-generator settings.
+_COMPONENT_KEYS: Final = frozenset(
+    {
+        "id",
+        "kind",
+        "type",
+        "component",
+        "part",
+        "device",
+        "element",
+        "pins",
+        "connections",
+        "nodes",
+        "nets",
+        "terminals",
+        "label",
+        "note",
+        "comment",
+        "description",
+        "model",
+    }
 )
 
 _SOURCE_VALUE_KEYS: Final[dict[ComponentKind, tuple[str, ...]]] = {
@@ -580,6 +627,8 @@ class _CircuitBuilder:
             canonical = resolve_model(spec.kind, text) if spec.models else None
             result["model"] = canonical or text
         waveform = _pick(data, "waveform", "signal", "wave", "source_type")
+        if spec.kind is ComponentKind.FUNCTION_GENERATOR:
+            waveform = _generator_settings(data, waveform)
         if waveform is not None and "waveform" not in result:
             parsed = self._waveform(waveform, name)
             if parsed is not None:
@@ -628,12 +677,15 @@ class _CircuitBuilder:
             raw_output = _text(_pick(data, "output", "mode", "type", "action", "behavior"), 24)
             output = _BEHAVIOR_OUTPUTS.get(raw_output.lower().replace(" ", "_"))
             when = _pick(data, "when", "condition", "if", "while")
+            source = _pick(data, *_INPUT_KEYS)
             if output is None:
                 output = "rule" if when is not None else None
+            if output == "pwm" and source is not None and _pick(data, "duty") is None:
+                output = "follow"  # "PWM from A0"
             if output is None:
                 self.problem(
                     f"{where} '{pin}': output '{raw_output}' is not supported; use high, low, "
-                    "blink, pwm or rule."
+                    "blink, pwm, rule or follow."
                 )
                 continue
             entry: Json = {"pin": pin, "output": output}
@@ -652,6 +704,11 @@ class _CircuitBuilder:
                     entry["duty"] = value / 100 if text.endswith("%") or value > 1 else value
             if when is not None:
                 entry["when"] = _text(when, 48)
+            if source is not None and output == "follow":
+                entry["input"] = _text(source, 4).upper()
+            hold = self.optional_number(data, _HOLD_KEYS, f"{where} '{pin}'")
+            if hold is not None and hold > 0:
+                entry["hold"] = hold
             built.append(entry)
         return built
 
@@ -785,12 +842,63 @@ class _CircuitBuilder:
             return self._sine(data, where)
         if shape in _PULSE_SHAPES:
             return self._pulse(data, where)
+        if shape in _TRIANGLE_SHAPES or shape in _SAWTOOTH_SHAPES:
+            return self._slopes(data, where, triangle=shape in _TRIANGLE_SHAPES)
         if shape in _RAMP_SHAPES:
             return self._ramp(data, where)
         if shape in _PWL_SHAPES or "points" in data:
             return self._pwl(_pick(data, "points", "values", "pwl", "data"), where)
-        self.problem(f"{where}: shape '{shape}' is not supported; use 'sine', 'pulse' or 'pwl'.")
+        self.problem(
+            f"{where}: shape '{shape}' is not supported; use 'sine', 'square', 'triangle', "
+            "'sawtooth', 'pulse' or 'pwl'."
+        )
         return None
+
+    def _slopes(self, data: Json, where: str, *, triangle: bool) -> Json | None:
+        """A triangle or sawtooth wave, expressed as a pulse with long edges."""
+
+        def number(keys: Sequence[str]) -> float | None:
+            return self.optional_number(data, keys, where)
+
+        low = number(("low", "initial", "v1", "min", "vmin", "vlow"))
+        high = number(("high", "pulsed", "v2", "max", "vmax", "vhigh"))
+        if low is None or high is None:
+            amplitude = number(("amplitude", "amp", "peak"))
+            if amplitude is None:
+                peak_to_peak = number(("vpp", "peak_to_peak"))
+                amplitude = None if peak_to_peak is None else peak_to_peak / 2
+            offset = number(("offset", "dc_offset", "dc")) or 0.0
+            if amplitude is not None:
+                low, high = offset - abs(amplitude), offset + abs(amplitude)
+        period = number(("period", "per", "t"))
+        frequency = number(("frequency", "freq", "f"))
+        if period is None and frequency is not None and frequency > 0:
+            period = 1.0 / frequency
+        name = "triangle" if triangle else "sawtooth"
+        if low is None or high is None or period is None or period <= 0:
+            self.problem(
+                f"{where}: a {name} needs 'low' and 'high' (or 'amplitude') and 'frequency'."
+            )
+            return None
+        tiny = period * 1e-6
+        rise, fall = (
+            (period / 2 - tiny, period / 2 - tiny)
+            if triangle
+            else (
+                period * 0.998,
+                period * 1e-3,
+            )
+        )
+        return {
+            "shape": "pulse",
+            "initial": low,
+            "pulsed": high,
+            "delay": max(number(("delay", "td")) or 0.0, 0.0),
+            "rise": rise,
+            "fall": fall,
+            "width": tiny,
+            "period": period,
+        }
 
     def _pwl(self, raw: object, where: str) -> Json | None:
         """Points as [[t, v], ...], [{"time": t, "value": v}, ...] or a flat [t, v, t, v]."""

@@ -1276,7 +1276,9 @@
           "arduino_uno",
           "switch",
           "buzzer",
-          "dc_motor"
+          "dc_motor",
+          "function_generator",
+          "timer_555"
         ],
         "title": "ComponentKind"
       },
@@ -2021,7 +2023,8 @@
               "low",
               "blink",
               "pwm",
-              "rule"
+              "rule",
+              "follow"
             ],
             "title": "Output"
           },
@@ -2074,6 +2077,32 @@
               }
             ],
             "title": "When"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "hold": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 3600.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold"
           }
         },
         "additionalProperties": false,
@@ -2083,7 +2112,7 @@
           "output"
         ],
         "title": "PinBehavior",
-        "description": "How a microcontroller drives one output pin (see :mod:`.arduino`).\n\n``high``/``low``: constant. ``blink``: on/off with ``period`` seconds and ``duty``\n(fraction on, default 0.5). ``pwm``: ``duty`` 0..1 at ``frequency`` Hz (default 490).\n``rule``: high while ``when`` holds, e.g. ``\"A0 < 2.5\"``."
+        "description": "How a microcontroller drives one output pin (see :mod:`.arduino`).\n\n``high``/``low``: constant. ``blink``: on/off with ``period`` seconds and ``duty``\n(fraction on, default 0.5). ``pwm``: ``duty`` 0..1 at ``frequency`` Hz (default 490).\n``rule``: high while ``when`` holds, e.g. ``\"A0 < 2.5\"``, and for ``hold`` seconds\nafter it stops holding. ``follow``: PWM whose duty follows analog ``input`` (0-5 V\ngives 0-100%), e.g. a knob setting LED brightness or motor speed."
       },
       "PinOut": {
         "properties": {

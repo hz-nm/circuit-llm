@@ -3,7 +3,7 @@ import type { Component } from "../../api/types";
 import { formatReadout } from "../../lib/si";
 import { currentsAt, netKey, outputsAt, voltagesAt } from "../simulation/live";
 import { exploreRange, type SimulationSession } from "../simulation/session";
-import { formatStimulus, isBinary, STIMULUS, type StimulusSpec } from "./stimulus";
+import { formatStimulus, isBinary, isMomentary, stimulusSpec, type StimulusSpec } from "./stimulus";
 
 const STEPS = 1000;
 const RESISTIVE = new Set(["ldr", "thermistor", "gas_sensor"]);
@@ -62,7 +62,7 @@ export function sensorReadout(
  * then dragging shows the circuit's steady state at that value.
  */
 export function SensorSlider({ session, component, compact = false }: { session: SimulationSession; component: Component; compact?: boolean }) {
-  const spec = STIMULUS[component.kind]!;
+  const spec = stimulusSpec(component)!;
   if (isBinary(spec)) return <SensorButton session={session} component={component} spec={spec} compact={compact} />;
   return <StimulusSlider session={session} component={component} spec={spec} compact={compact} />;
 }
@@ -93,7 +93,7 @@ function useReadout(session: SimulationSession, component: Component, spec: Stim
  */
 function SensorButton({ session, component, spec, compact }: ControlProps) {
   const active = session.explore?.sensorId === component.id ? session.explore : null;
-  const momentary = component.kind === "switch" && (component.model ?? "push_button").toLowerCase().startsWith("push_button");
+  const momentary = isMomentary(component);
   const constant = typeof component.stimulus === "number" ? component.stimulus : 0;
   const pressed = (active ? active.value : constant) >= 0.5;
   const sweeping = session.exploreStatus?.sensorId === component.id && session.exploreStatus.kind === "sweeping";

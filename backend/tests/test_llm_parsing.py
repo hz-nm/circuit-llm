@@ -320,3 +320,28 @@ def test_raw_newlines_and_latex_escapes_in_strings_are_repaired() -> None:
     result = parse_model_output(raw)
     assert result.circuit is not None, result.problems
     assert result.reply.startswith("Line one.\nR = ")
+
+
+def test_function_generator_settings_on_the_component_and_slope_shapes() -> None:
+    answer = {
+        "reply": "r",
+        "circuit": {
+            "title": "t",
+            "components": [
+                # weak models put the generator's knobs on the component itself
+                {"id": "FG1", "kind": "signal generator", "shape": "triangle", "low": 0,
+                 "high": 5, "frequency": "1k", "pins": {"out": "A", "com": "GND"}},
+                {"id": "FG2", "kind": "function_generator", "waveform": "sawtooth",
+                 "amplitude": 2, "frequency": 500, "pins": ["B", "GND"]},
+                {"id": "R1", "kind": "resistor", "value": "1k", "pins": ["A", "B"]},
+                {"id": "R2", "kind": "resistor", "value": "1k", "pins": ["B", "GND"]},
+            ],
+        },
+    }  # fmt: skip
+    result = parse_model_output(json.dumps(answer))
+    assert result.circuit is not None, result.problems
+    triangle, saw = (c.waveform for c in result.circuit.components[:2])
+    assert isinstance(triangle, PulseWave) and (triangle.initial, triangle.pulsed) == (0, 5)
+    assert triangle.rise == pytest.approx(0.5e-3, rel=1e-3) == triangle.fall
+    assert isinstance(saw, PulseWave) and (saw.initial, saw.pulsed) == (-2, 2)
+    assert saw.rise > 100 * saw.fall and saw.period == pytest.approx(2e-3)
