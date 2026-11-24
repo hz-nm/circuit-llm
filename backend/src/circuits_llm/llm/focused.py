@@ -90,8 +90,10 @@ def _question(arduino: Json, components: Sequence[Json], intent: str) -> str:
             f"What the design should do: {intent[:MAX_INTENT_CHARS]}",
             "",
             'Write the pin behaviours: one entry for every connected D pin. "output" is high, '
-            'low, blink ("period" in seconds), pwm ("duty" 0..1) or rule (high while "when" '
-            'holds; "when" compares an analog pin A0-A5 with volts, e.g. "A0 < 2.3").',
+            'low, blink ("period" in seconds), pwm ("duty" 0..1), follow (PWM that follows '
+            'an analog pin, "input": "A0"; PWM pins only: D3, D5, D6, D9, D10, D11) or rule '
+            '(high while "when" holds; "when" compares an analog pin A0-A5 with volts, e.g. '
+            '"A0 < 2.3"; optional "hold" keeps it on that many seconds afterwards).',
             'Answer exactly like: {"behavior": [{"pin": "D9", "output": "rule", "when": '
             '"A0 < 2.3"}]}',
         ]
