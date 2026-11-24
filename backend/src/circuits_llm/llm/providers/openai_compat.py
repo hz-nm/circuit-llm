@@ -166,12 +166,6 @@ def _content_text(content: Any) -> str:
 
 
 class OpenRouterProvider(OpenAICompatibleProvider):
-    """OpenRouter: the OpenAI-compatible API plus attribution headers."""
+    """OpenRouter: the OpenAI-compatible API (no app-attribution headers are sent)."""
 
     provider_name = "OpenRouter"
-
-    def _headers(self) -> dict[str, str]:
-        headers = super()._headers()
-        headers["HTTP-Referer"] = "https://github.com/circuits-llm/circuits-llm"
-        headers["X-Title"] = "circuits-llm"
-        return headers
