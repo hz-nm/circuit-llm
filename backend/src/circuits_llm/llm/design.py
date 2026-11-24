@@ -163,6 +163,18 @@ async def _run_endpoint(
                 model=endpoint.model,
             )
             return
+        if attempt == MAX_ATTEMPTS_PER_ENDPOINT and _only_expectations_failed(parsed, issues):
+            # A circuit that simulates and passes every bench check is still useful: deliver
+            # it with the unmet expectations as warnings rather than discard it.
+            logger.info("endpoint %s: delivering with unmet expectations", endpoint.id)
+            yield DesignCompleted(
+                reply=parsed.reply,
+                circuit=parsed.circuit,
+                warnings=[*warnings, *_unverified(issues)],
+                endpoint_id=endpoint.id,
+                model=endpoint.model,
+            )
+            return
 
         logger.info("endpoint %s attempt %d: %d problem(s)", endpoint.id, attempt, len(problems))
         if attempt < MAX_ATTEMPTS_PER_ENDPOINT:
@@ -213,6 +225,27 @@ TRUNCATED_PROBLEM: Final = (
     "circuit needs, as one complete JSON object."
 )
 _TRUNCATION_REASONS: Final = frozenset({"length", "max_tokens", "max_output_tokens"})
+
+
+_EXPECTATION_CODES: Final = frozenset({"expectation_failed", "expectation_unreached"})
+
+
+def _only_expectations_failed(parsed: ParseResult, issues: Sequence[Issue]) -> bool:
+    """True when the circuit simulated cleanly and only its own expectations failed."""
+    errors = [i for i in issues if i.severity is Severity.ERROR]
+    return (
+        parsed.circuit is not None
+        and bool(errors)
+        and all(i.code in _EXPECTATION_CODES for i in errors)
+    )
+
+
+def _unverified(issues: Sequence[Issue]) -> list[Issue]:
+    return [
+        i.model_copy(update={"severity": Severity.WARNING, "message": f"Not met: {i.message}"})
+        for i in issues
+        if i.severity is Severity.ERROR
+    ]
 
 
 def _was_truncated(finish_reason: str | None) -> bool:

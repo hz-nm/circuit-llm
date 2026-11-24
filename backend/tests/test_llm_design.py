@@ -203,6 +203,28 @@ def test_repair_round_echoes_the_focused_fix() -> None:
 
 
 @pytest.mark.skipif(locate_ngspice() is None, reason="ngspice not found")
+def test_last_attempt_delivers_a_circuit_that_only_misses_its_expectations() -> None:
+    # A sound circuit with an expectation it can never meet (1 A through a small LED):
+    # after the last repair attempt the user still gets the circuit, with a warning.
+    answer = json.loads(VALID_ANSWER)
+    answer["circuit"]["expectations"] = [
+        {"description": "LED draws 1 A", "signal": "I(D1)", "check": "> 1"}
+    ]
+    provider = FakeProvider([json.dumps(answer)] * 3)
+    simulator = NgspiceSimulator(cast(Path, locate_ngspice()))
+
+    async def simulate(circuit: Circuit) -> list[Issue]:
+        return await simulation_issues(simulator, circuit)
+
+    events = _run({"a": provider}, extra_checks=[simulate])
+
+    completed = events[-1]
+    assert isinstance(completed, DesignCompleted) and completed.circuit is not None
+    assert [type(e) for e in events].count(AttemptStarted) == 3
+    assert [w.message[:8] for w in completed.warnings] == ["Not met:"]
+
+
+@pytest.mark.skipif(locate_ngspice() is None, reason="ngspice not found")
 def test_static_sensor_gets_a_focused_stimulus_fix() -> None:
     # The LDR street lamp with its light profile removed: "lamp on at night" can never
     # be exercised, so the loop asks for the sensor's stimulus instead of a full repair.

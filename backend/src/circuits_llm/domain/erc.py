@@ -531,6 +531,11 @@ def stimulus_quantities() -> frozenset[str]:
 def _signal_problem(circuit: Circuit, signal: Signal) -> str | None:
     """Why ``signal`` cannot be measured in ``circuit``, or None if it can."""
     nets = circuit.nets()
+    if signal.kind == "axis":
+        if any(a.type == ("tran" if signal.target == "time" else "ac") for a in circuit.analyses):
+            return None
+        needed = "a 'tran'" if signal.target == "time" else "an 'ac'"
+        return f"'{signal.target}' needs {needed} analysis"
     if signal.kind == "voltage":
         if signal.target.lower() in (n.lower() for n in nets):
             return None
@@ -563,6 +568,13 @@ def _check_expectations(circuit: Circuit) -> Iterator[Issue]:
                 signals.append(parse_condition(expectation.when, quantities)[0])
         except ExpectationSyntaxError as exc:
             yield _error("bad_expectation", f"{where}: {exc}.")
+            continue
+        if signals[0].kind == "axis":
+            yield _error(
+                "bad_expectation",
+                f"{where}: '{expectation.signal}' is the analysis axis; measure a signal such "
+                "as V(OUT) and put the time or frequency in 'when', e.g. 'time > 0.5'.",
+            )
             continue
         for signal in signals:
             problem = _signal_problem(circuit, signal)
