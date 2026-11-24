@@ -51,7 +51,8 @@ cd frontend && npm run dev                            # UI on :5173, proxies /ap
 Checks: `ruff check`, `ruff format --check` and `pyright` (strict) for the backend;
 `npm run build` for the frontend. Run `pytest` and `npm test`. Tests never call real LLM APIs.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it all fits together.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full developer guide and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it all fits together.
 To add a new component kind, start in `backend/src/circuits_llm/domain/catalog.py`.
 
 ## License
