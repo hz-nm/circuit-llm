@@ -10,6 +10,7 @@
 import type { ReactNode } from "react";
 import { formatSI } from "../../lib/si";
 import type { Component, ComponentKind } from "../../api/types";
+import { waveKind, type WaveKind } from "./waveform";
 
 
 /** Kinds with a symbol (every catalog kind; the compiler checks the registry is complete). */
@@ -254,7 +255,7 @@ function unoGeometry(c: Component): { width: number; height: number; pins: PinDe
   };
 }
 
-/** One-line behaviour summary, e.g. "D9 rule A0 > 2.5 · D13 blink 0.25 s · D3 PWM 25%". */
+/** One-line behaviour summary, e.g. "D9 rule A0 > 2.5 · D13 blink 0.25 s · D3 PWM 25% · D5 PWM ← A0". */
 function unoSummary(c: Component): string | null {
   const num = (v: number) => String(Number(v.toPrecision(3)));
   const parts = (c.behavior ?? []).map((b) => {
@@ -264,7 +265,9 @@ function unoSummary(c: Component): string | null {
       case "pwm":
         return `${b.pin} PWM${b.duty !== undefined && b.duty !== null ? ` ${num(b.duty * 100)}%` : ""}`;
       case "rule":
-        return `${b.pin} rule ${b.when ?? "?"}`;
+        return `${b.pin} rule ${b.when ?? "?"}${b.hold ? ` (hold ${num(b.hold)} s)` : ""}`;
+      case "follow":
+        return `${b.pin} PWM ← ${b.input ?? "?"}`;
       default:
         return `${b.pin} ${b.output}`;
     }
@@ -321,6 +324,45 @@ function gate(body: GateBody, options: { inverted?: boolean; schmitt?: boolean; 
     ),
   };
 }
+
+// ---------------------------------------------------------------------------- sources and timers
+
+/** Waveform glyph centred at (x, y), about 18 x 10. */
+function WaveGlyph({ kind, x, y }: { kind: WaveKind; x: number; y: number }) {
+  const d: Record<WaveKind, string> = {
+    sine: "m-8 0q4-9 8 0t8 0",
+    square: "m-9 4h3v-9h6v9h6v-9h3",
+    pulse: "m-9 4h3v-9h3v9h9v-9h3",
+    triangle: "m-9 4l4.5-9l4.5 9l4.5-9l4.5 9",
+    sawtooth: "m-9 4l6-9v9l6-9v9l6-9",
+    pwl: "m-9 -4l6 8h6l6-8",
+  };
+  return <path d={`M${x} ${y}${d[kind]}`} strokeLinejoin="round" />;
+}
+
+/** 555 pins in catalog order: supply on top, inputs left, outputs right. */
+const TIMER_PINS: readonly PinDef[] = [
+  { name: "vcc", x: 35, y: 0, side: "NORTH" },
+  { name: "gnd", x: 50, y: 100, side: "SOUTH" },
+  { name: "trig", x: 0, y: 35, side: "WEST" },
+  { name: "thr", x: 0, y: 55, side: "WEST" },
+  { name: "dis", x: 100, y: 65, side: "EAST", optional: true },
+  { name: "out", x: 100, y: 40, side: "EAST" },
+  { name: "reset", x: 65, y: 0, side: "NORTH", optional: true },
+  { name: "ctrl", x: 0, y: 75, side: "WEST", optional: true },
+];
+
+/** 555 pin labels with their DIP pin numbers. */
+const TIMER_PIN_LABELS: Record<string, string> = {
+  vcc: "8 VCC",
+  gnd: "1 GND",
+  trig: "2 TRIG",
+  thr: "6 THR",
+  dis: "7 DIS",
+  out: "3 OUT",
+  reset: "4 RST",
+  ctrl: "5 CV",
+};
 
 // ---------------------------------------------------------------------------- registry
 
@@ -385,13 +427,7 @@ export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
       <>
         <path d="M20 0V15M20 45V60" />
         <circle cx={20} cy={30} r={15} className="sym-body" />
-        {c.waveform?.shape === "sine" ? (
-          <path d="M12 30q4-9 8 0t8 0" />
-        ) : c.waveform?.shape === "pulse" ? (
-          <path d="M11 34H15V25H23V34H29" strokeLinejoin="round" />
-        ) : c.waveform?.shape === "pwl" ? (
-          <path d="M11 26L17 34H23L29 26" strokeLinejoin="round" />
-        ) : null}
+        {c.waveform ? <WaveGlyph kind={waveKind(c.waveform)} x={20} y={30} /> : null}
         <Plus x={20} y={c.waveform ? 20 : 23} s={3} />
         <Minus x={20} y={c.waveform ? 40 : 38} s={3} />
       </>
@@ -413,6 +449,28 @@ export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
         <path d="M20 0V15M20 45V60" />
         <circle cx={20} cy={30} r={15} className="sym-body" />
         <Arrow x1={20} y1={40} x2={20} y2={19} />
+      </>
+    ),
+  },
+  function_generator: {
+    width: 50,
+    height: 60,
+    pins: [
+      { name: "+", x: 25, y: 0, side: "NORTH" },
+      { name: "-", x: 25, y: 60, side: "SOUTH" },
+    ],
+    orientation: "vertical",
+    labelSide: "right",
+    valueUnit: "V",
+    defaultModel: null,
+    draw: (c) => (
+      <>
+        <path d="M25 0V12M25 48V60" />
+        {/* Bench instrument: a box showing the waveform it is set to */}
+        <rect x={5} y={12} width={40} height={36} rx={3} className="sym-body" />
+        <WaveGlyph kind={c.waveform ? waveKind(c.waveform) : "sine"} x={25} y={27} />
+        <SymbolText x={25} y={41} text="FG" size={7} />
+        <Plus x={33} y={6} s={2.5} />
       </>
     ),
   },
@@ -735,6 +793,32 @@ export const SYMBOLS: Record<SymbolKind, SymbolDef> = {
         <Leads x1={19} x2={41} y={15} w={60} />
         <circle cx={30} cy={15} r={11} className="sym-body" />
         <path d="M22.2 7.2L37.8 22.8M37.8 7.2L22.2 22.8" />
+      </>
+    ),
+  },
+  timer_555: {
+    width: 100,
+    height: 100,
+    pins: TIMER_PINS,
+    orientation: "fixed",
+    labelSide: "right-top",
+    valueUnit: null,
+    defaultModel: "NE555",
+    draw: (c, connected) => (
+      <>
+        <rect x={15} y={15} width={70} height={70} rx={3} className="sym-body" />
+        <SymbolText x={50} y={47} text="555" size={11} />
+        {c.model && c.model !== "NE555" ? <SymbolText x={50} y={59} text={c.model} size={6} /> : null}
+        {TIMER_PINS.filter((p) => !p.optional || connected.has(p.name)).map((p) => {
+          const lead = { NORTH: `M${p.x} 0V15`, SOUTH: `M${p.x} 85V100`, WEST: `M0 ${p.y}H15`, EAST: `M85 ${p.y}H100` }[p.side];
+          const [lx, ly]: [number, number] = p.side === "NORTH" ? [p.x, 22] : p.side === "SOUTH" ? [p.x, 79] : p.side === "WEST" ? [29, p.y] : [71, p.y];
+          return (
+            <g key={p.name}>
+              <path d={lead} />
+              <SymbolText x={lx} y={ly} text={TIMER_PIN_LABELS[p.name] ?? p.name} size={6} />
+            </g>
+          );
+        })}
       </>
     ),
   },

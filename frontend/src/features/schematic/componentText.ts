@@ -1,13 +1,14 @@
 import type { Component } from "../../api/types";
 import { formatSI } from "../../lib/si";
-import { STIMULUS, stimulusText } from "./stimulus";
+import { stimulusSpec, stimulusText } from "./stimulus";
 import { SYMBOLS } from "./symbols";
+import { dutyOf, waveKind } from "./waveform";
 
 /** Short value text for a component, e.g. "4.7 kΩ", "sine 1 V @ 1 kHz", "2N3904" (mirrors the backend). */
 export function componentSummary(component: Component): string {
   const symbol = SYMBOLS[component.kind];
   if (symbol.summary) return symbol.summary(component) ?? "";
-  if (STIMULUS[component.kind]) {
+  if (stimulusSpec(component)) {
     // Sensors: rating value (if any), model, then the environment they see:
     // "GL5528, light pwl 1000 → 0.5 → 1000 lux", "10 kΩ, B3950, temperature 25 °C".
     const value = component.value !== undefined && component.value !== null && symbol.valueUnit !== null ? formatSI(component.value, symbol.valueUnit) : null;
@@ -23,7 +24,10 @@ export function componentSummary(component: Component): string {
     if (waveform.shape === "sine") {
       parts.push(`sine ${formatSI(waveform.amplitude, unit)} @ ${formatSI(waveform.frequency, "Hz")}`);
     } else if (waveform.shape === "pulse") {
-      parts.push(`pulse ${formatSI(waveform.initial, unit)}→${formatSI(waveform.pulsed, unit)}`);
+      const kind = waveKind(waveform);
+      const levels = `${formatSI(waveform.initial, unit)}→${formatSI(waveform.pulsed, unit)}`;
+      const duty = kind === "pulse" ? `, ${Math.round(dutyOf(waveform) * 100)}%` : "";
+      parts.push(`${kind} ${levels} @ ${formatSI(1 / waveform.period, "Hz")}${duty}`);
     } else {
       const shown = waveform.points.slice(0, 4).map(([, v]) => formatSI(v, unit));
       parts.push(`pwl ${shown.join(" → ")}${waveform.points.length > 4 ? " …" : ""}`);

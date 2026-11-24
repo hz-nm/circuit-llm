@@ -3,7 +3,7 @@ import type { Circuit } from "../../api/types";
 import { formatReadout } from "../../lib/si";
 import { cursorLabel, isDrivable, netKey, sampleAt, type LiveVoltages } from "../simulation/live";
 import { SensorSlider } from "./SensorSlider";
-import { formatStimulus, STIMULUS } from "./stimulus";
+import { formatStimulus, stimulusSpec } from "./stimulus";
 import type { SimulationSession } from "../simulation/session";
 
 const SWEEP_MS = 4000;
@@ -45,7 +45,7 @@ function Scrubber({ live, session }: { live: Extract<LiveVoltages, { kind: "swee
 
   // Environment readouts ("☀ LDR1  120 lx") for every sensor with a recorded stimulus.
   const environment = session.version.circuit.components.flatMap((c) => {
-    const spec = STIMULUS[c.kind];
+    const spec = stimulusSpec(c);
     const ys = live.stimuli.get(netKey(c.id));
     return spec && ys ? [{ id: c.id, text: `${spec.icon} ${c.id} ${formatStimulus(sampleAt(live.x, ys, value), spec)}` }] : [];
   });
@@ -134,7 +134,7 @@ export function LiveDock({
   voltages: ReadonlyMap<string, number> | null;
 }) {
   const { live, result, driver, setDriver, explore, exitExplore } = session;
-  const sensors = circuit.components.filter((c) => STIMULUS[c.kind]);
+  const sensors = circuit.components.filter((c) => stimulusSpec(c));
   const sweeps = (result?.ok ? (result.analyses ?? []) : []).flatMap((a, i) => (isDrivable(a) ? [{ a, i }] : []));
   const [showNets, setShowNets] = useState(false);
 
