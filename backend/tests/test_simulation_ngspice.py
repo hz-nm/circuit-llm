@@ -393,3 +393,47 @@ def test_button_runs_a_motor_that_coasts_after_release() -> None:
 
     assert at(0.05) < 1  # not yet pressed
     assert 0 < at(1.3) < at(1.05)  # released: coasting down on its inertia
+
+
+@requires_ngspice
+def test_555_one_shot_and_arduino_follow_and_hold() -> None:
+    press = {"shape": "pulse", "initial": 0, "pulsed": 1, "delay": 0.1, "width": 0.05, "period": 10}
+    data: dict[str, Any] = {
+        "title": "timing",
+        "components": [
+            _vsrc("V1", "VCC", "GND", value=9),
+            {"id": "U1", "kind": "timer_555", "model": "NE555",
+             "pins": {"vcc": "VCC", "gnd": "GND", "trig": "TRIG", "thr": "T", "dis": "T",
+                      "out": "OUT"}},
+            _two_pin("resistor", "R1", "VCC", "T", 10e3),
+            _two_pin("capacitor", "C1", "T", "GND", 10e-6),  # 1.1 * R * C = 110 ms
+            _two_pin("resistor", "R2", "VCC", "TRIG", 10e3),
+            {"id": "SW1", "kind": "switch", "stimulus": press, "pins": {"1": "TRIG", "2": "GND"}},
+            _two_pin("resistor", "R3", "OUT", "GND", 10e3),
+            {"id": "U2", "kind": "arduino_uno",
+             "pins": {"GND": "GND", "5V": "V5", "A0": "KNOB", "A1": "OUT", "D9": "P9", "D7": "P7"},
+             "behavior": [{"pin": "D9", "output": "follow", "input": "A0"},
+                          {"pin": "D7", "output": "rule", "when": "A1 > 3", "hold": 0.1}]},
+            {"id": "RV1", "kind": "potentiometer", "value": 10e3, "stimulus": 0.3,
+             "pins": {"1": "GND", "w": "KNOB", "2": "V5"}},
+            _two_pin("resistor", "R4", "P9", "GND", 10e3),
+            _two_pin("resistor", "R5", "P7", "GND", 10e3),
+        ],
+        "analyses": [{"type": "tran", "stop_time": 0.4, "step_time": 1e-5}],
+        "probes": [{"kind": "voltage", "target": "OUT"}, {"kind": "voltage", "target": "P7"},
+                   {"kind": "voltage", "target": "P9"}],
+    }  # fmt: skip
+    result = _simulate(data)
+    assert result.ok, result.error
+    tran = _sweep(result, 1)
+    time = tran.x.values
+
+    def high_span(net: str) -> tuple[float, float]:
+        values = next(t.values for t in tran.traces if t.net == net)
+        on = [t for t, v in zip(time, values, strict=True) if v > 2.5]
+        return on[0], on[-1]
+
+    assert high_span("OUT") == pytest.approx((0.1, 0.21), abs=5e-3)  # the one-shot
+    assert high_span("P7") == pytest.approx((0.1, 0.31), abs=5e-3)  # ... held 0.1 s longer
+    pwm = next(t.values for t in tran.traces if t.net == "P9")
+    assert 0.2 < sum(v > 2.5 for v in pwm) / len(pwm) < 0.4  # duty follows the 30% knob

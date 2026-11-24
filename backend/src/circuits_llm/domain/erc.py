@@ -11,7 +11,7 @@ from collections.abc import Iterable, Iterator
 from enum import StrEnum
 from typing import Final
 
-from .arduino import rule_condition
+from .arduino import follow_input, rule_condition
 from .catalog import ARDUINO_DIGITAL_PINS, ARDUINO_PWM_PINS, CATALOG, ComponentKind, ComponentSpec
 from .circuit import (
     GROUND_NET,
@@ -162,7 +162,15 @@ def _check_component(c: Component, spec: ComponentSpec) -> Iterator[Issue]:
         )
 
     if spec.is_source:
-        if c.value is None and c.waveform is None and c.ac_magnitude is None:
+        if c.kind is ComponentKind.FUNCTION_GENERATOR and c.waveform is None:
+            yield _error(
+                "source_without_value",
+                f'{name}: give the generator a "waveform", e.g. {{"shape": "square", '
+                '"low": 0, "high": 5, "frequency": "1k", "duty": 0.5} or {"shape": "sine", '
+                '"amplitude": 1, "frequency": "1k"}.',
+                component=c.id,
+            )
+        elif c.value is None and c.waveform is None and c.ac_magnitude is None:
             yield _error(
                 "source_without_value",
                 f"{name}: give the source a DC 'value', a 'waveform', or an 'ac_magnitude'.",
@@ -184,7 +192,7 @@ def _check_component(c: Component, spec: ComponentSpec) -> Iterator[Issue]:
         )
         yield _error(
             "waveform_on_non_source",
-            f"{name}: remove 'waveform': only voltage_source and current_source may have "
+            f"{name}: remove 'waveform': only sources and function generators may have "
             f"'waveform' or 'ac_magnitude'.{hint}",
             component=c.id,
         )
@@ -244,10 +252,28 @@ def _check_behavior(c: Component, name: str) -> Iterator[Issue]:
                 f"{where}: has a behaviour but is not connected.",
                 component=c.id,
             )
-        if b.output == "pwm" and b.pin not in ARDUINO_PWM_PINS:
+        if b.output in ("pwm", "follow") and b.pin not in ARDUINO_PWM_PINS:
             yield _error(
                 "not_a_pwm_pin",
                 f"{where}: PWM works only on D3, D5, D6, D9, D10 and D11.",
+                component=c.id,
+            )
+        if b.output == "follow":
+            try:
+                source = follow_input(b)
+            except ExpectationSyntaxError as exc:
+                yield _error("bad_follow", f"{where}: {exc}.", component=c.id)
+            else:
+                if source not in c.pins:
+                    yield _error(
+                        "rule_input_unconnected",
+                        f"{where}: it follows {source}, which is not connected.",
+                        component=c.id,
+                    )
+        if b.hold is not None and b.output != "rule":
+            yield _warning(
+                "hold_without_rule",
+                f"{where}: 'hold' only applies to a 'rule'; it is ignored.",
                 component=c.id,
             )
         if b.output == "blink" and b.period is None:
@@ -278,7 +304,8 @@ def _check_behavior(c: Component, name: str) -> Iterator[Issue]:
                 f'Inside the "{c.id}" component object add the key "behavior", for example '
                 f'"behavior": [{{"pin": "{pin}", "output": "rule", "when": "A0 < 2.3"}}] '
                 "(pick the analog input and the threshold in volts it should react to), or "
-                'use "output": "high", "blink" or "pwm".',
+                'use "output": "high", "blink", "pwm" or "follow" (PWM following an analog '
+                'input, e.g. {"pin": "D9", "output": "follow", "input": "A0"}).',
                 component=c.id,
             )
 

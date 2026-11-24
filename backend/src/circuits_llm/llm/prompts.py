@@ -347,6 +347,63 @@ _EXAMPLE_ARDUINO: Final[dict[str, Any]] = {
     },
 }
 
+_EXAMPLE_555_REQUEST: Final = "Blink an LED about once a second with a 555 timer from 9 V."
+_EXAMPLE_555: Final[dict[str, Any]] = {
+    "reply": (
+        "A 555 in astable mode: C1 charges through R1 + R2 and discharges through R2 into "
+        "'dis', swinging between 3 V and 6 V (1/3 and 2/3 of 9 V). f = 1.44 / ((R1 + 2*R2) "
+        "* C1) = 1.44 / (146k * 10u) ≈ 1 Hz; high for 0.693 * 78k * 10u ≈ 0.54 s, low for "
+        "0.693 * 68k * 10u ≈ 0.47 s. The output (about 7.5 V when high) lights the LED "
+        "through 330 ohms, about 17 mA."
+    ),
+    "circuit": {
+        "title": "555 LED blinker",
+        "description": "Astable 555 at about 1 Hz driving an LED.",
+        "components": [
+            {"id": "V1", "kind": "voltage_source", "value": 9, "pins": {"+": "VCC", "-": "GND"}},
+            {
+                "id": "U1",
+                "kind": "timer_555",
+                "model": "NE555",
+                "pins": {
+                    "vcc": "VCC",
+                    "gnd": "GND",
+                    "trig": "TIMING",
+                    "thr": "TIMING",
+                    "dis": "DIS",
+                    "out": "OUT",
+                    "reset": "VCC",
+                },
+            },
+            {"id": "R1", "kind": "resistor", "value": "10k", "pins": {"1": "VCC", "2": "DIS"}},
+            {"id": "R2", "kind": "resistor", "value": "68k", "pins": {"1": "DIS", "2": "TIMING"}},
+            {"id": "C1", "kind": "capacitor", "value": "10u", "pins": {"1": "TIMING", "2": "GND"}},
+            {"id": "R3", "kind": "resistor", "value": "330", "pins": {"1": "OUT", "2": "LED"}},
+            {"id": "D1", "kind": "led", "model": "red", "pins": {"anode": "LED", "cathode": "GND"}},
+        ],
+        "analyses": [{"type": "tran", "stop_time": 4, "step_time": "1m"}],
+        "probes": [
+            {"kind": "voltage", "target": "TIMING"},
+            {"kind": "voltage", "target": "OUT"},
+            {"kind": "current", "target": "D1"},
+        ],
+        "expectations": [
+            {
+                "description": "LED on while the output is high",
+                "signal": "I(D1)",
+                "check": "> 10m",
+                "when": "V(OUT) > 5",
+            },
+            {
+                "description": "LED off while the output is low",
+                "signal": "I(D1)",
+                "check": "< 1m",
+                "when": "V(OUT) < 1",
+            },
+        ],
+    },
+}
+
 # Skeleton lines shown only when their family is in the prompt: weak models copy the
 # FORMAT skeleton far more faithfully than they follow descriptions.
 _FAMILY_SKELETON_LINES: Final[dict[Family, str]] = {
@@ -358,6 +415,11 @@ _FAMILY_SKELETON_LINES: Final[dict[Family, str]] = {
         ',\n     {"id": "U1", "kind": "arduino_uno",\n'
         '      "pins": {"GND": "GND", "5V": "VCC", "A0": "SENSE", "D9": "OUT"},\n'
         '      "behavior": [{"pin": "D9", "output": "rule", "when": "A0 > 2.5"}]}'
+    ),
+    Family.TIMERS: (
+        ',\n     {"id": "U1", "kind": "timer_555", "model": "NE555",\n'
+        '      "pins": {"vcc": "VCC", "gnd": "GND", "trig": "TIMING", "thr": "TIMING", '
+        '"dis": "DIS", "out": "OUT", "reset": "VCC"}}'
     ),
 }
 
@@ -373,9 +435,20 @@ _FAMILY_NOTES: Final[dict[Family, str]] = {
         'An arduino_uno is programmed with "behavior", one entry per output pin, e.g. '
         '[{"pin": "D13", "output": "blink", "period": 1}, {"pin": "D9", "output": "rule", '
         '"when": "A0 > 2.5"}]. "output" is high, low, blink ("period" in seconds), pwm '
-        '("duty" 0..1) or rule (high while "when" holds; "when" compares an analog pin A0-A5 '
-        "with volts). Every connected D pin MUST have a behavior entry. Never write Arduino "
-        "code: the sketch is generated from the behaviours."
+        '("duty" 0..1), follow (PWM whose duty follows an analog pin: "input": "A0", 0-5 V '
+        'gives 0-100%, e.g. a knob dimming an LED) or rule (high while "when" holds; "when" '
+        'compares an analog pin A0-A5 with volts; add "hold": seconds to stay high that long '
+        "after, e.g. a light staying on 10 s after motion). Every connected D pin MUST have "
+        "a behavior entry. Never write Arduino code: the sketch is generated from the "
+        "behaviours."
+    ),
+    Family.TIMERS: (
+        "555 astable (oscillator): R1 from VCC to 'dis', R2 from 'dis' to 'thr' and 'trig' "
+        "(joined, net TIMING), C1 from TIMING to GND. f = 1.44 / ((R1 + 2*R2) * C1); high for "
+        "0.693*(R1 + R2)*C1, low for 0.693*R2*C1. 555 monostable (one-shot): R from VCC to "
+        "'thr' and 'dis' (joined), C from there to GND, 'trig' pulled up to VCC by 10k and "
+        "pulled low by a push button or pulse: 'out' stays high for 1.1*R*C. Make the "
+        "transient long enough for several cycles."
     ),
 }
 
@@ -406,6 +479,7 @@ FEW_SHOT_EXAMPLES: Final[tuple[tuple[str, dict[str, Any], frozenset[Family]], ..
         _EXAMPLE_ARDUINO,
         frozenset({Family.CORE, Family.SENSORS, Family.MICROCONTROLLERS}),
     ),
+    (_EXAMPLE_555_REQUEST, _EXAMPLE_555, frozenset({Family.CORE, Family.TIMERS})),
 )
 
 
@@ -468,7 +542,10 @@ def response_schema() -> dict[str, Any]:
     waveform = {
         "type": ["object", "null"],
         "properties": {
-            "shape": {"type": "string", "enum": ["sine", "pulse"]},
+            "shape": {
+                "type": "string",
+                "enum": ["sine", "pulse", "square", "triangle", "sawtooth", "pwl"],
+            },
             **{
                 key: _NUMBER_OR_STRING
                 for key in (
@@ -483,6 +560,9 @@ def response_schema() -> dict[str, Any]:
                     "fall",
                     "width",
                     "period",
+                    "low",
+                    "high",
+                    "duty",
                 )
             },
         },

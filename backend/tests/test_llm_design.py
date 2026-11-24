@@ -170,7 +170,8 @@ def test_unusable_plan_falls_back_to_every_family() -> None:
 
 
 def test_unprogrammed_arduino_gets_a_focused_follow_up() -> None:
-    answer = json.loads(json.dumps(FEW_SHOT_EXAMPLES[-1][1]))  # the Arduino night light
+    night_light = next(a for r, a, _ in FEW_SHOT_EXAMPLES if "Arduino" in r)
+    answer = json.loads(json.dumps(night_light))
     arduino = answer["circuit"]["components"][0]
     assert arduino["kind"] == "arduino_uno"
     del arduino["behavior"]  # what weak models do

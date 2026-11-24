@@ -40,6 +40,7 @@ from .library import (
     LOGIC_KINDS,
     OPAMP_MODELS,
     SENSOR_KINDS,
+    TIMER_MODELS,
     DeviceModel,
     arduino_subckt,
     buzzer_subckt,
@@ -48,6 +49,8 @@ from .library import (
     logic_subckt_name,
     opamp_subckt_name,
     sensor_subckt_name,
+    timer_subckt,
+    timer_subckt_name,
     zener_model,
 )
 
@@ -60,6 +63,7 @@ MAX_METERED_COMPONENTS: Final = 64  # two-pin parts whose current is always reco
 # microseconds) are captured; extraction then decimates while keeping extremes.
 MAX_TRAN_OUTPUT_POINTS: Final = 100_000
 MAX_TITLE_LENGTH: Final = 120
+FUNCTION_GENERATOR_OHMS: Final = 50.0
 OP_RAW_FILE: Final = "op.raw"
 
 _NAME_RE: Final = re.compile(r"^[A-Za-z0-9_]{1,64}$")
@@ -98,6 +102,8 @@ _ELEMENT_LETTER: Final[dict[ComponentKind, str]] = {
     ComponentKind.SWITCH: "X",
     ComponentKind.BUZZER: "X",
     ComponentKind.DC_MOTOR: "X",
+    ComponentKind.FUNCTION_GENERATOR: "V",
+    ComponentKind.TIMER_555: "X",
 }
 _PASSIVES: Final = frozenset(
     {ComponentKind.RESISTOR, ComponentKind.CAPACITOR, ComponentKind.INDUCTOR}
@@ -224,6 +230,10 @@ class _Names:
     stimulus_node: dict[str, str] = field(default_factory=dict[str, str])  # sensor id -> node
     explore: StimulusSweep | None = None
     output_node: dict[str, str] = field(default_factory=dict[str, str])  # motor id -> rpm node
+    # (component id, purpose) -> node inside a part, e.g. behind a generator's 50 ohms or
+    # standing in for an unconnected optional pin of a 555.
+    internal_node: dict[tuple[str, str], str] = field(default_factory=dict[tuple[str, str], str])
+    internal_element: dict[str, str] = field(default_factory=dict[str, str])  # id -> extra R
 
 
 def _assign_names(circuit: Circuit, current_probes: list[Component]) -> _Names:
@@ -255,6 +265,16 @@ def _assign_names(circuit: Circuit, current_probes: list[Component]) -> _Names:
         if CATALOG[component.kind].outputs:
             name = element[component.id]
             names.output_node[component.id] = _unique(f"out_{name}", used_nodes)
+        name = element[component.id]
+        if component.kind is ComponentKind.FUNCTION_GENERATOR:
+            names.internal_node[(component.id, "out")] = _unique(f"{name}_emf", used_nodes)
+            names.internal_element[component.id] = _unique(f"R{name}_OUT", used)
+        elif component.kind is ComponentKind.TIMER_555:
+            for pin in CATALOG[component.kind].pins:
+                if pin.name not in component.pins:
+                    names.internal_node[(component.id, pin.name)] = _unique(
+                        f"{name}_nc_{pin.name}", used_nodes
+                    )
     return names
 
 
@@ -508,11 +528,34 @@ class _Emitted:
     custom: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
 
 
+def _emit_timer(component: Component, spec: ComponentSpec, names: _Names, out: _Emitted) -> None:
+    """Every port is wired: unconnected optional pins get their own internal node."""
+    model = component.model or spec.default_model
+    if model is None or model not in TIMER_MODELS:
+        raise SpiceEmissionError(f"{component.id}: unknown 555 model '{model}'")
+    ports = [
+        _node(component.pins[pin.name])
+        if pin.name in component.pins
+        else names.internal_node[(component.id, pin.name)]
+        for pin in spec.pins
+    ]
+    out.custom.append((timer_subckt_name(model), timer_subckt(model)))
+    out.lines.append(f"{names.element[component.id]} {' '.join(ports)} {timer_subckt_name(model)}")
+
+
 def _emit_component(component: Component, names: _Names, out: _Emitted) -> None:
     spec = CATALOG[component.kind]
     element = names.element[component.id]
     nodes = " ".join(_pin_nodes(component, spec, names))
-    if component.kind in _PASSIVES:
+    if component.kind is ComponentKind.FUNCTION_GENERATOR:
+        positive, negative = _pin_nodes(component, spec, names)
+        emf = names.internal_node[(component.id, "out")]
+        out.lines.append(f"{element} {emf} {negative} {_source_spec(component)}")
+        resistor = names.internal_element[component.id]
+        out.lines.append(f"{resistor} {emf} {positive} {_num(FUNCTION_GENERATOR_OHMS)}")
+    elif component.kind is ComponentKind.TIMER_555:
+        _emit_timer(component, spec, names, out)
+    elif component.kind in _PASSIVES:
         if component.value is None or component.value <= 0:
             raise SpiceEmissionError(f"{component.id}: value must be a positive number")
         out.lines.append(f"{element} {nodes} {_num(component.value)}")
@@ -565,7 +608,7 @@ def _plan(analysis: Analysis, index: int, circuit: Circuit, names: _Names) -> Pl
             if source is None or not CATALOG[source.kind].is_source:
                 raise SpiceEmissionError(f"DC sweep source '{analysis.source}' is not a source")
             step = analysis.step if analysis.stop >= analysis.start else -analysis.step
-            unit = "V" if source.kind is ComponentKind.VOLTAGE_SOURCE else "A"
+            unit = "A" if source.kind is ComponentKind.CURRENT_SOURCE else "V"
             command = (
                 f"dc {names.element[source.id]} {_num(analysis.start)} {_num(analysis.stop)} "
                 f"{_num(step)}"
